@@ -15,6 +15,7 @@ from algobet_common.config import Settings
 from algobet_common.db import Database
 from algobet_common.schemas import MarketData
 from ingestion.__main__ import publish_dummy_tick
+
 from scripts.migrate import apply_migrations
 
 
@@ -44,9 +45,7 @@ async def _main() -> int:
 
         print("4/4 consuming dummy tick...")
         received = [
-            m async for m in bus.consume(
-                Topic.MARKET_DATA, MarketData, count=10, block_ms=3000
-            )
+            m async for m in bus.consume(Topic.MARKET_DATA, MarketData, count=10, block_ms=3000)
         ]
         if not any(m.market_id == "smoke.e2e" for m in received):
             print("ERROR: smoke tick not received", file=sys.stderr)

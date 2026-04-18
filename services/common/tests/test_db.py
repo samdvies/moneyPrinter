@@ -1,5 +1,4 @@
 import pytest
-
 from algobet_common.db import Database
 
 

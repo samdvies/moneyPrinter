@@ -45,8 +45,7 @@ async def apply_migrations(dsn: str, migrations_dir: Path) -> None:
             "version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
         )
         already_applied = {
-            r["version"]
-            for r in await conn.fetch("SELECT version FROM schema_migrations")
+            r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")
         }
         for m in migrations:
             if m.version in already_applied:
@@ -63,6 +62,7 @@ async def apply_migrations(dsn: str, migrations_dir: Path) -> None:
 
 def _dsn_from_env() -> str:
     import os
+
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = os.environ.get("POSTGRES_PORT", "5432")
     user = os.environ.get("POSTGRES_USER", "algobet")

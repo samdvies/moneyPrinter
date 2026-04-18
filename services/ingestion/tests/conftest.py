@@ -14,6 +14,7 @@ def redis_url() -> str:
 @pytest.fixture(autouse=True)
 async def _flush_redis(redis_url: str) -> AsyncIterator[None]:
     import redis.asyncio as redis
+
     client = redis.from_url(redis_url)
     try:
         await client.flushdb()

@@ -1,4 +1,5 @@
 """Root conftest: make the repo root importable so `scripts.*` is resolvable."""
+
 import sys
 from pathlib import Path
 

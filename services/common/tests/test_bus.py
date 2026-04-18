@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-
 from algobet_common.bus import BusClient, Topic
 from algobet_common.schemas import MarketData, Venue
 
@@ -22,7 +21,8 @@ async def test_publish_and_consume_roundtrip(redis_url: str) -> None:
         await client.publish(Topic.MARKET_DATA, msg)
 
         received = [
-            received async for received in client.consume(
+            received
+            async for received in client.consume(
                 Topic.MARKET_DATA, MarketData, count=1, block_ms=2000
             )
         ]
@@ -53,9 +53,7 @@ async def test_consumer_group_isolation(redis_url: str) -> None:
         await c.connect()
         try:
             received = [
-                m async for m in c.consume(
-                    Topic.MARKET_DATA, MarketData, count=1, block_ms=2000
-                )
+                m async for m in c.consume(Topic.MARKET_DATA, MarketData, count=1, block_ms=2000)
             ]
             assert any(m.market_id == "isolation-test" for m in received)
         finally:

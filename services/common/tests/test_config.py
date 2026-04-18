@@ -1,5 +1,4 @@
 import pytest
-
 from algobet_common.config import Settings
 
 
@@ -23,4 +22,4 @@ def test_settings_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_settings_requires_service_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SERVICE_NAME", raising=False)
     with pytest.raises(ValueError):
-        Settings(_env_file=None)  # type: ignore[call-arg]
+        Settings(_env_file=None)

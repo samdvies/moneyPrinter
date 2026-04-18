@@ -2,9 +2,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from pydantic import ValidationError
-
 from algobet_common.schemas import MarketData, OrderSide, OrderSignal, Venue
+from pydantic import ValidationError
 
 
 def test_market_data_roundtrip() -> None:

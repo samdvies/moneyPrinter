@@ -28,7 +28,7 @@ async def publish_dummy_tick(bus: BusClient, market_id: str = "scaffold.001") ->
 
 
 async def _main() -> None:
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings()
     bus = BusClient(settings.redis_url, settings.service_name)
     await bus.connect()
     try:

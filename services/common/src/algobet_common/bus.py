@@ -9,10 +9,16 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import redis.asyncio as redis
 from pydantic import BaseModel
+
+# Redis field-map type alias matching redis-py's xadd signature (invariant dict).
+_RedisFieldMap = dict[
+    bytes | bytearray | memoryview | str | int | float,
+    bytes | bytearray | memoryview | str | int | float,
+]
 
 
 class Topic(StrEnum):
@@ -48,8 +54,8 @@ class BusClient:
 
     async def publish(self, topic: Topic, message: BaseModel) -> str:
         client = self._require()
-        payload = {"json": message.model_dump_json()}
-        return await client.xadd(topic.value, payload)
+        payload: _RedisFieldMap = {"json": message.model_dump_json()}
+        return cast(str, await client.xadd(topic.value, payload))
 
     async def _ensure_group(self, topic: Topic) -> None:
         client = self._require()

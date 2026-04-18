@@ -19,9 +19,7 @@ async def test_apply_migrations_creates_strategies_table(postgres_dsn: str) -> N
 
     conn = await asyncpg.connect(postgres_dsn)
     try:
-        row = await conn.fetchrow(
-            "SELECT to_regclass('strategies') AS tbl"
-        )
+        row = await conn.fetchrow("SELECT to_regclass('strategies') AS tbl")
         assert row["tbl"] == "strategies"
 
         versions = await conn.fetch("SELECT version FROM schema_migrations ORDER BY version")
