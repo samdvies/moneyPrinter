@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Rust
+target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets & config
+.env
+.env.*
+!.env.example
+secrets/
+credentials.json
+*.pem
+*.key
+
+# Data
+data/
+*.parquet
+*.csv
+*.db
+*.sqlite
+
+# Obsidian workspace state (keep vault content, ignore local state)
+wiki/.obsidian/workspace*
+wiki/.obsidian/cache
+wiki/.trash/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Tool caches
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

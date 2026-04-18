@@ -1,0 +1,21 @@
+[project]
+name = "algo-betting"
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+description = "Agentic algorithmic betting ecosystem for Betfair + Kalshi"
+
+[tool.uv.workspace]
+members = ["services/common", "services/ingestion"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["services/common/tests", "services/ingestion/tests"]

@@ -1,0 +1,6 @@
+{
+  "folder": "70-Daily",
+  "template": "90-Templates/Daily-Log-Template",
+  "format": "YYYY-MM-DD",
+  "autorun": false
+}

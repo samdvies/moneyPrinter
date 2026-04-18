@@ -1,0 +1,16 @@
+[project]
+name = "ingestion"
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+description = "Market data ingestion service for Betfair and Kalshi"
+dependencies = ["algobet-common"]
+
+[tool.uv.sources]
+algobet-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ingestion"]
