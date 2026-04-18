@@ -3,6 +3,11 @@ name = "algo-betting"
 version = "0.0.1"
 requires-python = ">=3.12,<3.13"
 description = "Agentic algorithmic betting ecosystem for Betfair + Kalshi"
+dependencies = ["algobet-common", "ingestion"]
+
+[tool.uv.sources]
+algobet-common = { workspace = true }
+ingestion = { workspace = true }
 
 [tool.uv.workspace]
 members = ["services/common", "services/ingestion"]
