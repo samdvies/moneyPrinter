@@ -46,3 +46,19 @@ Core services:
 ## Commit Discipline
 
 Per user default: only commit when asked. Do not auto-commit.
+
+## Plan Documents
+
+Plan documents under `docs/superpowers/plans/` describe **what** to do and **why** — file paths, responsibilities, interfaces between tasks, verification steps. They do **not** embed complete code. Short contract snippets (a type signature, a single schema row, one config key) are fine; full functions, full migrations, full workflow YAML, full `pyproject.toml` contents are not. Code belongs in the execution diff, not the plan.
+
+## Phase 1 Status
+
+Scaffolding complete. The following exists:
+
+- `docker compose up` runs TimescaleDB + Redis locally
+- `uv run python -m scripts.migrate` applies SQL migrations (strategies / strategy_runs / orders)
+- `algobet_common` package: Settings, pydantic schemas (MarketData, OrderSignal, ExecutionResult, RiskAlert), BusClient (Redis Streams), Database (asyncpg pool)
+- `ingestion` service is a hello-world publisher. Real Betfair/Kalshi code is Phase 2.
+- CI runs lint + typecheck + tests + end-to-end smoke on push.
+
+Every subsequent service (simulator, risk manager, orchestrator, dashboard, execution-engine) should be a new member of the uv workspace under `services/` and reuse `algobet_common`. Never re-implement bus or DB logic in a service.

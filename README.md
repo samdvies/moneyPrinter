@@ -4,9 +4,22 @@ Agentic low-latency statistical arbitrage ecosystem for Betfair Exchange and Kal
 
 Hobbyist-tier (£500–£1k stakes initially), UK-based, risk-averse with real capital, aggressive in simulation. Self-improving research flywheel with human approval gate before any live deployment.
 
+## Local development
+
+Requirements: Docker, uv (>=0.5), Python 3.12.
+
+    uv sync                                  # install all workspace deps
+    cp .env.example .env                     # adjust if ports collide
+    docker compose up -d                     # postgres + redis
+    uv run python -m scripts.migrate         # apply SQL migrations
+    uv run python -m scripts.smoke           # end-to-end sanity
+    uv run pytest -v                         # run the test suite
+
+CI runs the same `smoke.py` in `.github/workflows/ci.yml` against service containers.
+
 ## Status
 
-**Phase 0 — Research & scaffolding.** No live services. No live capital.
+**Phase 1 — Scaffolding complete.** Infra, common library, migrations, CI in place. No live services. No live capital.
 
 ## Layout
 
