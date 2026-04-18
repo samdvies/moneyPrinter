@@ -1,1 +1,1 @@
-# placeholder — fleshed out in Task 8
+"""Market data ingestion service (scaffold — real feeds come in Phase 2)."""
