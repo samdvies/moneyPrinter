@@ -8,7 +8,9 @@ import pytest
 
 @pytest.fixture
 def postgres_dsn() -> str:
-    host = os.environ.get("POSTGRES_HOST", "localhost")
+    # Default to 127.0.0.1 — on Windows `localhost` resolves to IPv6 ::1 first
+    # and a ~21s TCP timeout per connection fires before falling back to IPv4.
+    host = os.environ.get("POSTGRES_HOST", "127.0.0.1")
     port = os.environ.get("POSTGRES_PORT", "5432")
     user = os.environ.get("POSTGRES_USER", "algobet")
     password = os.environ.get("POSTGRES_PASSWORD", "devpassword")
@@ -31,7 +33,9 @@ async def require_postgres(postgres_dsn: str) -> AsyncIterator[None]:
 
 @pytest.fixture
 def redis_url() -> str:
-    host = os.environ.get("REDIS_HOST", "localhost")
+    # Default to 127.0.0.1 — on Windows `localhost` resolves to IPv6 ::1 first
+    # and a ~21s TCP timeout per connection fires before falling back to IPv4.
+    host = os.environ.get("REDIS_HOST", "127.0.0.1")
     port = os.environ.get("REDIS_PORT", "6379")
     return f"redis://{host}:{port}/15"  # DB 15 = isolated test db
 
