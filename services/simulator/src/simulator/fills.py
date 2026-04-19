@@ -10,6 +10,7 @@ LAY  / NO:  taker hits bids (best bid first, descending price).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
@@ -22,16 +23,17 @@ _MAKER_SIDES: frozenset[OrderSide] = frozenset({OrderSide.LAY, OrderSide.NO})
 
 def _vwap(fills: list[tuple[Decimal, Decimal]]) -> Decimal:
     """Volume-weighted average price from a list of (price, size) fill pairs."""
-    total_size = sum(s for _, s in fills)
+    total_size = sum((s for _, s in fills), Decimal("0"))
     if total_size == Decimal("0"):
         return Decimal("0")
-    return sum(p * s for p, s in fills) / total_size
+    total_value = sum((p * s for p, s in fills), Decimal("0"))
+    return total_value / total_size
 
 
 def _walk_ladder(
     stake: Decimal,
     levels: list[tuple[Decimal, Decimal]],
-    crosses: "callable[[Decimal], bool]",
+    crosses: Callable[[Decimal], bool],
 ) -> tuple[Decimal, Decimal | None, Literal["placed", "partially_filled", "filled"]]:
     """Walk price levels, consuming stake until exhausted or no crossing level.
 

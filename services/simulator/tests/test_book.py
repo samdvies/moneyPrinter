@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
-
 from algobet_common.schemas import MarketData, Venue
 from simulator.book import Book
 

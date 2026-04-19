@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from algobet_common.schemas import MarketData, OrderSide, OrderSignal, Venue
 from simulator.fills import match_order
 
@@ -90,7 +88,9 @@ def test_back_multi_level_full_fill() -> None:
     assert result.status == "filled"
     assert result.filled_stake == Decimal("30.00")
     # VWAP: (20*2.50 + 10*2.60) / 30
-    expected_price = (Decimal("20") * Decimal("2.50") + Decimal("10") * Decimal("2.60")) / Decimal("30")
+    expected_price = (Decimal("20") * Decimal("2.50") + Decimal("10") * Decimal("2.60")) / Decimal(
+        "30"
+    )
     assert result.filled_price is not None
     assert abs(result.filled_price - expected_price) < Decimal("0.0001")
 
