@@ -25,6 +25,30 @@ class Settings(BaseSettings):
     redis_db: int = 0
 
     service_name: str = Field(..., description="Identifier used for consumer groups and logs.")
+    betfair_username: str | None = Field(
+        default=None, description="Betfair account username for certificate login."
+    )
+    betfair_password: str | None = Field(
+        default=None, description="Betfair account password for certificate login."
+    )
+    betfair_app_key: str | None = Field(
+        default=None, description="Betfair app key provisioned via developer program."
+    )
+    betfair_certs_dir: str | None = Field(
+        default=None, description="Directory containing Betfair client cert/key files."
+    )
+    betfair_stream_conflate_ms: int = 0
+    betfair_reconnect_delay_seconds: float = 5.0
+    betfair_poll_interval_seconds: float = 0.25
+    betfair_market_ids_csv: str = ""
+
+    @property
+    def betfair_market_ids(self) -> list[str]:
+        return [
+            market_id.strip()
+            for market_id in self.betfair_market_ids_csv.split(",")
+            if market_id.strip()
+        ]
 
     @property
     def postgres_dsn(self) -> str:

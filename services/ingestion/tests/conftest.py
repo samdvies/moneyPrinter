@@ -18,6 +18,8 @@ async def _flush_redis(redis_url: str) -> AsyncIterator[None]:
     client = redis.from_url(redis_url)
     try:
         await client.flushdb()
+    except Exception:
+        pytest.skip("Redis is not available in this environment.")
     finally:
         await client.aclose()
     yield

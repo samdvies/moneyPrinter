@@ -15,6 +15,12 @@ def test_load_migrations_returns_sorted_by_version() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_migrations_creates_strategies_table(postgres_dsn: str) -> None:
+    try:
+        conn_check = await asyncpg.connect(postgres_dsn)
+    except OSError as exc:
+        pytest.skip(f"Postgres unavailable for integration test: {exc}")
+    await conn_check.close()
+
     await apply_migrations(postgres_dsn, Path("scripts/db/migrations"))
 
     conn = await asyncpg.connect(postgres_dsn)

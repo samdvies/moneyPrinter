@@ -1,22 +1,19 @@
-from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
-from algobet_common.bus import BusClient, Topic
+from algobet_common.bus import Topic
 from algobet_common.schemas import MarketData
-from ingestion.__main__ import publish_dummy_tick
+from ingestion.__main__ import publish_synthetic_tick
 
 
 @pytest.mark.asyncio
-async def test_publish_dummy_tick_writes_to_market_data(redis_url: str) -> None:
-    bus = BusClient(redis_url, service_name="ingestion-test")
-    await bus.connect()
-    try:
-        await publish_dummy_tick(bus, market_id="smoke-1.234")
+async def test_publish_synthetic_tick_writes_to_market_data() -> None:
+    bus = AsyncMock()
+    await publish_synthetic_tick(bus, market_id="smoke-1.234")
 
-        received = [
-            m async for m in bus.consume(Topic.MARKET_DATA, MarketData, count=1, block_ms=2000)
-        ]
-        assert received[0].market_id == "smoke-1.234"
-        assert received[0].bids[0][0] == Decimal("2.50")
-    finally:
-        await bus.close()
+    bus.publish.assert_awaited_once()
+    topic, message = bus.publish.await_args.args
+    assert topic == Topic.MARKET_DATA
+    assert isinstance(message, MarketData)
+    assert message.market_id == "smoke-1.234"
+    assert str(message.bids[0][0]) == "2.50"
