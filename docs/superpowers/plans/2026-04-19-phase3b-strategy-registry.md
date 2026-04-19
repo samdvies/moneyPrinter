@@ -82,7 +82,7 @@ Why: isolating the state-machine as a pure module lets the promotion-gate audito
 ### Task 5 — Docs + review
 
 - [x] Write the short README.
-- [ ] Invoke `promotion-gate-auditor` via the agents team to audit `transitions.py` + `crud.py::transition` before finalising the PR. Address any NO-GO findings.
+- [x] Invoke `promotion-gate-auditor` via the agents team to audit `transitions.py` + `crud.py::transition` before finalising the PR. Address any NO-GO findings.
 
 ## Verification Plan
 

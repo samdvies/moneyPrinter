@@ -108,7 +108,7 @@ async def _run_engine_with_timeout(
     engine_bus: BusClient,
     db: Database,
     settings: Settings,
-    run_id: str,
+    run_id: str | None,
     stop: asyncio.Event,
     timeout: float = _ENGINE_TIMEOUT,
 ) -> None:
@@ -129,7 +129,7 @@ async def test_paper_signal_roundtrip(
     strategy_and_run: tuple[str, str],
 ) -> None:
     """A paper OrderSignal that crosses produces an ExecutionResult and an orders row."""
-    strategy_id, run_id = strategy_and_run
+    strategy_id, _run_id = strategy_and_run
     stop = asyncio.Event()
 
     tick = MarketData(
@@ -153,7 +153,7 @@ async def test_paper_signal_roundtrip(
     await bus.publish(Topic.MARKET_DATA, tick)
 
     engine_task = asyncio.create_task(
-        _run_engine_with_timeout(engine_bus, db, settings, run_id, stop, timeout=_ENGINE_TIMEOUT)
+        _run_engine_with_timeout(engine_bus, db, settings, None, stop, timeout=_ENGINE_TIMEOUT)
     )
 
     # Wait briefly for the engine to consume the tick into the book.
@@ -198,7 +198,7 @@ async def test_live_signal_rejected_with_risk_alert(
 
     The engine must emit a critical RiskAlert instead.
     """
-    strategy_id, run_id = strategy_and_run
+    strategy_id, _run_id = strategy_and_run
     stop = asyncio.Event()
 
     alert_bus = BusClient(
@@ -219,7 +219,7 @@ async def test_live_signal_rejected_with_risk_alert(
     await bus.publish(Topic.ORDER_SIGNALS, signal)
 
     engine_task = asyncio.create_task(
-        _run_engine_with_timeout(engine_bus, db, settings, run_id, stop, timeout=_ENGINE_TIMEOUT)
+        _run_engine_with_timeout(engine_bus, db, settings, None, stop, timeout=_ENGINE_TIMEOUT)
     )
 
     alerts: list[RiskAlert] = []
@@ -242,3 +242,51 @@ async def test_live_signal_rejected_with_risk_alert(
     assert alert.severity == "critical"
     assert "live-mode" in alert.message.lower() or "live" in alert.message.lower()
     assert not execution_results, "live-mode signal must NOT produce an ExecutionResult"
+
+
+async def test_signal_with_invalid_strategy_uuid_emits_warn_alert(
+    bus: BusClient,
+    engine_bus: BusClient,
+    db: Database,
+    settings: Settings,
+) -> None:
+    """Malformed strategy UUIDs should not crash the engine loop."""
+    stop = asyncio.Event()
+    alert_bus = BusClient(engine_bus._url, service_name="simulator-alert-reader-uuid")
+    await alert_bus.connect()
+
+    signal = OrderSignal(
+        strategy_id="not-a-uuid",
+        mode="paper",
+        venue=Venue.BETFAIR,
+        market_id="e2e.003",
+        side=OrderSide.BACK,
+        stake=Decimal("10.00"),
+        price=Decimal("2.60"),
+    )
+    await bus.publish(Topic.ORDER_SIGNALS, signal)
+
+    engine_task = asyncio.create_task(
+        _run_engine_with_timeout(
+            engine_bus,
+            db,
+            settings,
+            run_id=None,
+            stop=stop,
+            timeout=_ENGINE_TIMEOUT,
+        )
+    )
+
+    alerts: list[RiskAlert] = []
+    deadline = asyncio.get_event_loop().time() + _ENGINE_TIMEOUT
+    while asyncio.get_event_loop().time() < deadline and not alerts:
+        async for a in alert_bus.consume(Topic.RISK_ALERTS, RiskAlert, count=5, block_ms=500):
+            alerts.append(a)
+
+    stop.set()
+    await engine_task
+    await alert_bus.close()
+
+    assert alerts, "expected warn RiskAlert for malformed strategy_id"
+    assert alerts[0].severity == "warn"
+    assert "not a valid uuid" in alerts[0].message.lower()

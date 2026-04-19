@@ -140,3 +140,17 @@ async def test_record_order_missing_run_emits_alert(
     assert alert is not None
     assert alert.severity == "warn"
     assert "run_id" in alert.message
+
+
+async def test_record_order_invalid_strategy_id_emits_alert(
+    db: Database, strategy_and_run: tuple[str, str]
+) -> None:
+    """If strategy_id is malformed, record_order returns a warn RiskAlert."""
+    _strategy_id, run_id = strategy_and_run
+    order_id = str(uuid.uuid4())
+    signal = _signal("not-a-uuid")
+
+    alert = await record_order(signal, order_id, run_id, db)
+    assert alert is not None
+    assert alert.severity == "warn"
+    assert "not a valid uuid" in alert.message.lower()

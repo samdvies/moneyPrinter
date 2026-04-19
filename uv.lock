@@ -8,6 +8,7 @@ members = [
     "algobet-common",
     "ingestion",
     "simulator",
+    "strategy-registry",
 ]
 
 [[package]]
@@ -18,6 +19,7 @@ dependencies = [
     { name = "algobet-common" },
     { name = "ingestion" },
     { name = "simulator" },
+    { name = "strategy-registry" },
 ]
 
 [package.dev-dependencies]
@@ -34,6 +36,7 @@ requires-dist = [
     { name = "algobet-common", editable = "services/common" },
     { name = "ingestion", editable = "services/ingestion" },
     { name = "simulator", editable = "services/simulator" },
+    { name = "strategy-registry", editable = "services/strategy_registry" },
 ]
 
 [package.metadata.requires-dev]
@@ -516,6 +519,17 @@ wheels = [
 name = "simulator"
 version = "0.0.1"
 source = { editable = "services/simulator" }
+dependencies = [
+    { name = "algobet-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "algobet-common", editable = "services/common" }]
+
+[[package]]
+name = "strategy-registry"
+version = "0.0.1"
+source = { editable = "services/strategy_registry" }
 dependencies = [
     { name = "algobet-common" },
 ]

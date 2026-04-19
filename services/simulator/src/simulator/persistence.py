@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 _SERVICE = "simulator"
 
 
+def _warn_alert(message: str) -> RiskAlert:
+    alert = RiskAlert(
+        source=_SERVICE,
+        severity="warn",
+        message=message,
+        timestamp=datetime.now(UTC),
+    )
+    logger.warning("[%s] %s", _SERVICE, alert.message)
+    return alert
+
+
 async def record_order(
     signal: OrderSignal,
     order_id: str,
@@ -34,36 +45,34 @@ async def record_order(
     Returns a RiskAlert if the strategy/run registry rows are missing,
     otherwise returns None on success.
     """
+    try:
+        strategy_uuid = uuid.UUID(signal.strategy_id)
+    except ValueError:
+        return _warn_alert(
+            f"OrderSignal dropped: strategy_id is not a valid UUID ({signal.strategy_id!r})"
+        )
+
+    try:
+        run_uuid = uuid.UUID(run_id)
+    except ValueError:
+        return _warn_alert(f"OrderSignal dropped: run_id is not a valid UUID ({run_id!r})")
+
     async with db.acquire() as conn:
         strategy_exists = await conn.fetchval(
             "SELECT 1 FROM strategies WHERE id = $1",
-            uuid.UUID(signal.strategy_id),
+            strategy_uuid,
         )
         if not strategy_exists:
-            alert = RiskAlert(
-                source=_SERVICE,
-                severity="warn",
-                message=(
-                    f"OrderSignal dropped: strategy_id={signal.strategy_id!r} not found in registry"
-                ),
-                timestamp=datetime.now(UTC),
+            return _warn_alert(
+                f"OrderSignal dropped: strategy_id={signal.strategy_id!r} not found in registry"
             )
-            logger.warning("[%s] %s", _SERVICE, alert.message)
-            return alert
 
         run_exists = await conn.fetchval(
             "SELECT 1 FROM strategy_runs WHERE id = $1",
-            uuid.UUID(run_id),
+            run_uuid,
         )
         if not run_exists:
-            alert = RiskAlert(
-                source=_SERVICE,
-                severity="warn",
-                message=(f"OrderSignal dropped: run_id={run_id!r} not found in registry"),
-                timestamp=datetime.now(UTC),
-            )
-            logger.warning("[%s] %s", _SERVICE, alert.message)
-            return alert
+            return _warn_alert(f"OrderSignal dropped: run_id={run_id!r} not found in registry")
 
         try:
             await conn.execute(
@@ -74,8 +83,8 @@ async def record_order(
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 """,
                 uuid.UUID(order_id),
-                uuid.UUID(signal.strategy_id),
-                uuid.UUID(run_id),
+                strategy_uuid,
+                run_uuid,
                 signal.mode,
                 signal.venue.value,
                 signal.market_id,
@@ -86,14 +95,7 @@ async def record_order(
                 datetime.now(UTC),
             )
         except asyncpg.ForeignKeyViolationError as exc:
-            alert = RiskAlert(
-                source=_SERVICE,
-                severity="warn",
-                message=f"OrderSignal dropped: FK violation — {exc}",
-                timestamp=datetime.now(UTC),
-            )
-            logger.warning("[%s] %s", _SERVICE, alert.message)
-            return alert
+            return _warn_alert(f"OrderSignal dropped: FK violation — {exc}")
 
     return None
 
