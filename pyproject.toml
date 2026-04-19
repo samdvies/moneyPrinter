@@ -3,16 +3,19 @@ name = "algo-betting"
 version = "0.0.1"
 requires-python = ">=3.12,<3.13"
 description = "Agentic algorithmic betting ecosystem for Betfair + Kalshi"
-dependencies = ["algobet-common", "ingestion", "simulator", "strategy-registry"]
+dependencies = ["algobet-common", "ingestion", "simulator", "strategy-registry", "risk-manager", "dashboard", "research-orchestrator"]
 
 [tool.uv.sources]
 algobet-common = { workspace = true }
 ingestion = { workspace = true }
 simulator = { workspace = true }
 strategy-registry = { workspace = true }
+risk-manager = { workspace = true }
+dashboard = { workspace = true }
+research-orchestrator = { workspace = true }
 
 [tool.uv.workspace]
-members = ["services/common", "services/ingestion", "services/simulator", "services/strategy_registry"]
+members = ["services/common", "services/ingestion", "services/simulator", "services/strategy_registry", "services/risk_manager", "services/dashboard", "services/research_orchestrator"]
 
 [dependency-groups]
 dev = [
@@ -25,10 +28,11 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["services/common/tests", "services/ingestion/tests", "services/simulator/tests", "services/strategy_registry/tests"]
+testpaths = ["services/common/tests", "services/ingestion/tests", "services/simulator/tests", "services/strategy_registry/tests", "services/risk_manager/tests", "services/dashboard/tests", "services/research_orchestrator/tests"]
 # Both test packages are named `tests`; importlib mode isolates them so
 # collection doesn't fail with ImportPathMismatchError.
 addopts = ["--import-mode=importlib"]
 markers = [
     "integration: requires local Redis/Postgres service containers",
+    "unit: tests that run offline without infrastructure",
 ]

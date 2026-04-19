@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+import json
+from decimal import Decimal
+from typing import Any
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +60,20 @@ class Settings(BaseSettings):
     kalshi_environment: str | None = Field(
         default="demo", description="Kalshi environment selector (for example: demo, prod)."
     )
+
+    # Risk manager settings — safe defaults leave existing services unaffected.
+    risk_max_strategy_exposure_gbp: Decimal = Decimal("1000")
+    risk_venue_notionals: dict[str, Decimal] = Field(default_factory=dict)
+    risk_kill_switch: bool = False
+
+    @field_validator("risk_venue_notionals", mode="before")
+    @classmethod
+    def _parse_venue_notionals(cls, v: Any) -> Any:
+        """Accept a JSON string from env (e.g. '{"betfair": "5000"}')."""
+        if isinstance(v, str):
+            parsed = json.loads(v)
+            return {k: Decimal(str(val)) for k, val in parsed.items()}
+        return v
 
     @property
     def betfair_market_ids(self) -> list[str]:
