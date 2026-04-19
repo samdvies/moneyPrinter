@@ -39,9 +39,7 @@ async def run_ingestion_mode(*, bus: BusClient, settings: Settings) -> None:
         return
 
     if mode != "betfair":
-        raise IngestionCredentialsError(
-            "INGESTION_MODE must be one of: betfair, synthetic."
-        )
+        raise IngestionCredentialsError("INGESTION_MODE must be one of: betfair, synthetic.")
 
     # TODO(CLAUDE.md Ground Rules): paper trading API must match live execution API
     # exactly so strategies remain mode-agnostic and promotion stays config-only.

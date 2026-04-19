@@ -1,8 +1,10 @@
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 from algobet_common.bus import Topic
+from algobet_common.config import Settings
 from algobet_common.schemas import MarketData
 from ingestion.__main__ import publish_synthetic_tick, run_ingestion_mode
 
@@ -23,7 +25,7 @@ async def test_publish_synthetic_tick_writes_to_market_data() -> None:
 @pytest.mark.asyncio
 async def test_run_ingestion_mode_uses_synthetic_path(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = AsyncMock()
-    settings = SimpleNamespace(ingestion_mode="synthetic")
+    settings = cast(Settings, SimpleNamespace(ingestion_mode="synthetic"))
     publish = AsyncMock()
     betfair = AsyncMock()
     monkeypatch.setattr("ingestion.__main__.publish_synthetic_tick", publish)
@@ -38,16 +40,19 @@ async def test_run_ingestion_mode_uses_synthetic_path(monkeypatch: pytest.Monkey
 @pytest.mark.asyncio
 async def test_run_ingestion_mode_uses_betfair_path(monkeypatch: pytest.MonkeyPatch) -> None:
     bus = AsyncMock()
-    settings = SimpleNamespace(
-        ingestion_mode="betfair",
-        betfair_username="user",
-        betfair_password="pass",
-        betfair_app_key="app",
-        betfair_certs_dir="/certs",
-        betfair_market_ids=["1.234"],
-        betfair_stream_conflate_ms=0,
-        betfair_reconnect_delay_seconds=5.0,
-        betfair_poll_interval_seconds=0.25,
+    settings = cast(
+        Settings,
+        SimpleNamespace(
+            ingestion_mode="betfair",
+            betfair_username="user",
+            betfair_password="pass",
+            betfair_app_key="app",
+            betfair_certs_dir="/certs",
+            betfair_market_ids=["1.234"],
+            betfair_stream_conflate_ms=0,
+            betfair_reconnect_delay_seconds=5.0,
+            betfair_poll_interval_seconds=0.25,
+        ),
     )
     publish = AsyncMock()
     betfair = AsyncMock()

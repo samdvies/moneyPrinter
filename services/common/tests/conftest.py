@@ -2,6 +2,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
+import asyncpg
 import pytest
 
 
