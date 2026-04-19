@@ -20,14 +20,17 @@ def _parse_decimal(value: Any) -> Decimal | None:
 
 def _parse_timestamp(payload: dict[str, Any]) -> datetime:
     raw_timestamp = payload.get("ts") or payload.get("timestamp")
-    if isinstance(raw_timestamp, (int, float)):
+    if isinstance(raw_timestamp, int | float):
         # Kalshi feeds commonly provide epoch milliseconds.
         if raw_timestamp > 10_000_000_000:
             return datetime.fromtimestamp(raw_timestamp / 1000, tz=UTC)
         return datetime.fromtimestamp(raw_timestamp, tz=UTC)
     if isinstance(raw_timestamp, str):
         parsed = raw_timestamp.replace("Z", "+00:00")
-        return datetime.fromisoformat(parsed)
+        try:
+            return datetime.fromisoformat(parsed)
+        except ValueError:
+            return datetime.now(UTC)
     return datetime.now(UTC)
 
 

@@ -62,3 +62,18 @@ def test_kalshi_message_to_market_data_ignores_malformed_payload() -> None:
     message = kalshi_message_to_market_data(payload)
 
     assert message is None
+
+
+def test_kalshi_message_to_market_data_handles_bad_iso_timestamp() -> None:
+    payload = {
+        "market_ticker": "KXBTC-26MAY",
+        "timestamp": "not-a-timestamp",
+        "bids": [],
+        "asks": [],
+    }
+
+    message = kalshi_message_to_market_data(payload)
+
+    assert message is not None
+    assert message.market_id == "KXBTC-26MAY"
+    assert message.timestamp.tzinfo is not None
