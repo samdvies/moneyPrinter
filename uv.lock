@@ -7,6 +7,7 @@ members = [
     "algo-betting",
     "algobet-common",
     "ingestion",
+    "simulator",
 ]
 
 [[package]]
@@ -16,6 +17,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "algobet-common" },
     { name = "ingestion" },
+    { name = "simulator" },
 ]
 
 [package.dev-dependencies]
@@ -31,6 +33,7 @@ dev = [
 requires-dist = [
     { name = "algobet-common", editable = "services/common" },
     { name = "ingestion", editable = "services/ingestion" },
+    { name = "simulator", editable = "services/simulator" },
 ]
 
 [package.metadata.requires-dev]
@@ -508,6 +511,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3a/5e/c927b325bd4c1d3620211a4b96f47864633199feed60fa936025ab27e090/ruff-0.15.11-py3-none-win_amd64.whl", hash = "sha256:8b6756d88d7e234fb0c98c91511aae3cd519d5e3ed271cae31b20f39cb2a12a3", size = 11779692, upload-time = "2026-04-16T18:46:17.268Z" },
     { url = "https://files.pythonhosted.org/packages/63/b6/aeadee5443e49baa2facd51131159fd6301cc4ccfc1541e4df7b021c37dd/ruff-0.15.11-py3-none-win_arm64.whl", hash = "sha256:063fed18cc1bbe0ee7393957284a6fe8b588c6a406a285af3ee3f46da2391ee4", size = 11032614, upload-time = "2026-04-16T18:46:34.487Z" },
 ]
+
+[[package]]
+name = "simulator"
+version = "0.0.1"
+source = { editable = "services/simulator" }
+dependencies = [
+    { name = "algobet-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "algobet-common", editable = "services/common" }]
 
 [[package]]
 name = "typing-extensions"
