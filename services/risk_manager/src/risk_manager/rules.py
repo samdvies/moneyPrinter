@@ -6,10 +6,12 @@ All functions are I/O-free so they can be unit-tested offline.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal
 
 from algobet_common.config import Settings
-from algobet_common.schemas import OrderSignal, Venue
+from algobet_common.schemas import OrderSide, OrderSignal, Venue
+from strategy_registry.models import LiabilityComponents
 
 _KNOWN_VENUES = {Venue.BETFAIR, Venue.KALSHI}
 
@@ -42,13 +44,61 @@ def check_kill_switch(signal: OrderSignal, settings: Settings) -> RuleResult:
     )
 
 
-def check_exposure(signal: OrderSignal, settings: Settings) -> RuleResult:
-    """Reject a signal whose stake exceeds the per-signal exposure cap."""
-    if signal.stake > settings.risk_max_strategy_exposure_gbp:
+def check_exposure(
+    signal: OrderSignal,
+    *,
+    strategy_total_liability_before: Decimal,
+    market_components_before: LiabilityComponents,
+    max_exposure_gbp: Decimal,
+    per_signal_cap_gbp: Decimal,
+) -> RuleResult:
+    """Reject a signal that breaches the per-signal ceiling or projected strategy cap."""
+    if signal.side is OrderSide.LAY:
+        signal_liability = (signal.price - Decimal("1")) * signal.stake
+    else:
+        signal_liability = signal.stake
+
+    if signal.side is OrderSide.LAY:
+        after = LiabilityComponents(
+            back_stake=market_components_before.back_stake,
+            lay_stake=market_components_before.lay_stake + signal.stake,
+            back_winnings=market_components_before.back_winnings,
+            lay_liability=market_components_before.lay_liability
+            + (signal.price - Decimal("1")) * signal.stake,
+        )
+    else:
+        after = LiabilityComponents(
+            back_stake=market_components_before.back_stake + signal.stake,
+            lay_stake=market_components_before.lay_stake,
+            back_winnings=market_components_before.back_winnings
+            + signal.stake * (signal.price - Decimal("1")),
+            lay_liability=market_components_before.lay_liability,
+        )
+
+    market_liability_after = after.market_liability
+    projected_total = (
+        strategy_total_liability_before
+        - market_components_before.market_liability
+        + market_liability_after
+    )
+
+    if signal_liability > per_signal_cap_gbp:
         return RuleResult(
             passed=False,
             severity="warn",
-            reason=(f"stake {signal.stake} exceeds cap {settings.risk_max_strategy_exposure_gbp}"),
+            reason=(
+                f"signal liability {signal_liability} exceeds per-signal ceiling"
+                f" {per_signal_cap_gbp}"
+            ),
+        )
+    if projected_total > max_exposure_gbp:
+        return RuleResult(
+            passed=False,
+            severity="warn",
+            reason=(
+                f"projected strategy liability {projected_total} would exceed cap"
+                f" {max_exposure_gbp}"
+            ),
         )
     return RuleResult.ok()
 
