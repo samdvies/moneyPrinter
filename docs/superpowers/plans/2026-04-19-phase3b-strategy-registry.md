@@ -54,34 +54,34 @@ The `strategies.status` CHECK constraint in `scripts/db/migrations/0002_strategy
 
 ### Task 1 — Workspace skeleton + models
 
-- [ ] Add the `services/strategy_registry/` package, wire it into workspace + testpaths.
-- [ ] Implement `models.py` DTOs + `Status` / `Mode` enums.
-- [ ] `uv sync --all-packages` must pass; mypy must be green.
+- [x] Add the `services/strategy_registry/` package, wire it into workspace + testpaths.
+- [x] Implement `models.py` DTOs + `Status` / `Mode` enums.
+- [x] `uv sync --all-packages` must pass; mypy must be green.
 
 ### Task 2 — Pure transition map
 
-- [ ] Implement `transitions.validate_transition`.
-- [ ] Implement `errors.py` with the three exception types.
-- [ ] Unit tests in `test_transitions.py`: one test per allowed edge, one per disallowed edge (expect `InvalidTransitionError`), one for `awaiting-approval → live` without `approved_by` (expect `ApprovalRequiredError`).
+- [x] Implement `transitions.validate_transition`.
+- [x] Implement `errors.py` with the three exception types.
+- [x] Unit tests in `test_transitions.py`: one test per allowed edge, one per disallowed edge (expect `InvalidTransitionError`), one for `awaiting-approval → live` without `approved_by` (expect `ApprovalRequiredError`).
 
 Why: isolating the state-machine as a pure module lets the promotion-gate auditor verify correctness without spinning up a DB.
 
 ### Task 3 — Async CRUD
 
-- [ ] Implement `create_strategy`, `get_strategy`, `list_strategies`, `start_run`, `end_run`.
-- [ ] Implement `transition` with `SELECT ... FOR UPDATE` + TOCTOU re-check.
-- [ ] `transition` must set `approved_by` + `approved_at` atomically when entering `live`.
+- [x] Implement `create_strategy`, `get_strategy`, `list_strategies`, `start_run`, `end_run`.
+- [x] Implement `transition` with `SELECT ... FOR UPDATE` + TOCTOU re-check.
+- [x] `transition` must set `approved_by` + `approved_at` atomically when entering `live`.
 
 ### Task 4 — Integration tests
 
-- [ ] `test_crud.py`: happy-path create → backtesting → paper → awaiting-approval → live (with `approved_by="operator@test"`), asserting the row in Postgres has both approval columns set.
-- [ ] Negative test: attempting `paper → live` raises `InvalidTransitionError` and the DB row is unchanged.
-- [ ] Negative test: `awaiting-approval → live` with `approved_by=None` raises `ApprovalRequiredError`.
-- [ ] Concurrent-update test (optional if time permits): two coroutines both trying to transition the same strategy, only one succeeds.
+- [x] `test_crud.py`: happy-path create → backtesting → paper → awaiting-approval → live (with `approved_by="operator@test"`), asserting the row in Postgres has both approval columns set.
+- [x] Negative test: attempting `paper → live` raises `InvalidTransitionError` and the DB row is unchanged.
+- [x] Negative test: `awaiting-approval → live` with `approved_by=None` raises `ApprovalRequiredError`.
+- [x] Concurrent-update test (optional if time permits): two coroutines both trying to transition the same strategy, only one succeeds.
 
 ### Task 5 — Docs + review
 
-- [ ] Write the short README.
+- [x] Write the short README.
 - [ ] Invoke `promotion-gate-auditor` via the agents team to audit `transitions.py` + `crud.py::transition` before finalising the PR. Address any NO-GO findings.
 
 ## Verification Plan
