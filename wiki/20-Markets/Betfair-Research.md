@@ -41,6 +41,15 @@ Initial research dump from parallel discovery pass. Source: Haiku research agent
 4. **Data source** — Betfair Data Scientists' 1.5TB historical archive for backtests
 5. **Modelling templates** — Betfair Data Scientists' predictive-models repo for sport-specific feature engineering
 
+## Order book mapping to MarketData
+
+Source of truth: `services/ingestion/src/ingestion/betfair_adapter.py`
+
+- `available_to_back` → `MarketData.bids` (side you buy/back at)
+- `available_to_lay` → `MarketData.asks` (side you sell/lay at)
+- `MarketData.market_id = f"{betfair_market_id}:{selection_id}"` (one message per runner, not per market)
+- `last_trade = runner.last_price_traded`
+
 ## Open Questions
 
 - Does `betfairlightweight` still support the 2026 stream API protocol, or are there breaking changes?
