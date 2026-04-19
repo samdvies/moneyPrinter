@@ -23,3 +23,12 @@ def test_settings_requires_service_name(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.delenv("SERVICE_NAME", raising=False)
     with pytest.raises(ValueError):
         Settings(_env_file=None)
+
+
+def test_settings_ingestion_mode_defaults_to_betfair(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SERVICE_NAME", "unit-test")
+    monkeypatch.delenv("INGESTION_MODE", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ingestion_mode == "betfair"

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     redis_db: int = 0
 
     service_name: str = Field(..., description="Identifier used for consumer groups and logs.")
+    ingestion_mode: str = Field(
+        default="betfair",
+        description="Ingestion runtime mode: betfair for streaming, synthetic for one scaffold tick.",
+    )
     betfair_username: str | None = Field(
         default=None, description="Betfair account username for certificate login."
     )
