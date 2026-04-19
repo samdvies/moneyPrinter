@@ -10,12 +10,13 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from algobet_common.db import Database
 
 from .errors import StrategyNotFoundError
-from .models import Mode, Status, Strategy, StrategyRun
+from .models import LiabilityComponents, Mode, Status, Strategy, StrategyRun
 from .transitions import validate_transition
 
 
@@ -226,3 +227,79 @@ async def end_run(
     if row is None:
         raise RuntimeError("UPDATE returned no row — run_id not found")
     return _row_to_run(row)
+
+
+async def get_open_liability(db: Database, strategy_id: uuid.UUID) -> Decimal:
+    """Return the total open liability for a strategy across all markets.
+
+    Queries the open_order_liability view and sums market_liability per selection group.
+    Returns Decimal("0") when there are no open orders.
+
+    Invariant: for every distinct (v, m, s) in open orders,
+    get_open_liability >= get_market_liability_components(...).market_liability.
+    This makes projected-total arithmetic in check_exposure sound.
+    """
+    async with db.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT back_stake, lay_stake, back_winnings, lay_liability
+            FROM open_order_liability
+            WHERE strategy_id = $1
+            """,
+            strategy_id,
+        )
+    total = Decimal("0")
+    for row in rows:
+        components = LiabilityComponents(
+            back_stake=Decimal(str(row["back_stake"])),
+            lay_stake=Decimal(str(row["lay_stake"])),
+            back_winnings=Decimal(str(row["back_winnings"])),
+            lay_liability=Decimal(str(row["lay_liability"])),
+        )
+        total += components.market_liability
+    return total
+
+
+async def get_market_liability_components(
+    db: Database,
+    strategy_id: uuid.UUID,
+    venue: str,
+    market_id: str,
+    selection_id: str | None,
+) -> LiabilityComponents:
+    """Return aggregated liability components for a (strategy, venue, market, selection) group.
+
+    When selection_id is None (legacy Kalshi or unidentified signals), no existing
+    NULL-selection rows will match (stored as 'order:<uuid>'). A fresh signal with
+    selection_id=None on a market with no historical orders returns zero components.
+
+    Returns zero-valued LiabilityComponents when no open orders match.
+    """
+    async with db.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT back_stake, lay_stake, back_winnings, lay_liability
+            FROM open_order_liability
+            WHERE strategy_id = $1
+              AND venue = $2
+              AND market_id = $3
+              AND selection_id_key = COALESCE($4, '__none__')
+            """,
+            strategy_id,
+            venue,
+            market_id,
+            selection_id,
+        )
+    if row is None:
+        return LiabilityComponents(
+            back_stake=Decimal("0"),
+            lay_stake=Decimal("0"),
+            back_winnings=Decimal("0"),
+            lay_liability=Decimal("0"),
+        )
+    return LiabilityComponents(
+        back_stake=Decimal(str(row["back_stake"])),
+        lay_stake=Decimal(str(row["lay_stake"])),
+        back_winnings=Decimal(str(row["back_winnings"])),
+        lay_liability=Decimal(str(row["lay_liability"])),
+    )
