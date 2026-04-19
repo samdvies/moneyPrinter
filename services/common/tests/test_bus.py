@@ -5,6 +5,8 @@ import pytest
 from algobet_common.bus import BusClient, Topic
 from algobet_common.schemas import MarketData, Venue
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_publish_and_consume_roundtrip(redis_url: str, _flush_redis: None) -> None:

@@ -17,24 +17,6 @@ def postgres_dsn() -> str:
 
 
 @pytest.fixture
-async def _reset_db(postgres_dsn: str) -> AsyncIterator[None]:
-    try:
-        conn = await asyncpg.connect(postgres_dsn)
-    except Exception as exc:
-        pytest.skip(f"Postgres unavailable for integration test: {exc}")
-    try:
-        await conn.execute("""
-            DROP TABLE IF EXISTS orders CASCADE;
-            DROP TABLE IF EXISTS strategy_runs CASCADE;
-            DROP TABLE IF EXISTS strategies CASCADE;
-            DROP TABLE IF EXISTS schema_migrations CASCADE;
-        """)
-    finally:
-        await conn.close()
-    yield
-
-
-@pytest.fixture
 async def require_postgres(postgres_dsn: str) -> AsyncIterator[None]:
     """Skip test when Postgres integration dependency is unavailable."""
     try:

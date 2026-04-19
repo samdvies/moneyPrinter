@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     redis_db: int = 0
 
     service_name: str = Field(..., description="Identifier used for consumer groups and logs.")
+    ingestion_mode: str = Field(
+        default="betfair",
+        description=(
+            "Ingestion runtime mode: betfair for streaming, synthetic for one scaffold tick."
+        ),
+    )
     betfair_username: str | None = Field(
         default=None, description="Betfair account username for certificate login."
     )
@@ -41,6 +47,15 @@ class Settings(BaseSettings):
     betfair_reconnect_delay_seconds: float = 5.0
     betfair_poll_interval_seconds: float = 0.25
     betfair_market_ids_csv: str = ""
+    kalshi_api_key: str | None = Field(
+        default=None, description="Kalshi API key for authenticated REST/WebSocket access."
+    )
+    kalshi_api_secret: str | None = Field(
+        default=None, description="Kalshi API secret paired with the configured API key."
+    )
+    kalshi_environment: str | None = Field(
+        default="demo", description="Kalshi environment selector (for example: demo, prod)."
+    )
 
     @property
     def betfair_market_ids(self) -> list[str]:

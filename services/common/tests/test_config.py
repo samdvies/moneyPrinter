@@ -23,3 +23,25 @@ def test_settings_requires_service_name(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.delenv("SERVICE_NAME", raising=False)
     with pytest.raises(ValueError):
         Settings(_env_file=None)
+
+
+def test_settings_ingestion_mode_defaults_to_betfair(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SERVICE_NAME", "unit-test")
+    monkeypatch.delenv("INGESTION_MODE", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ingestion_mode == "betfair"
+
+
+def test_settings_includes_kalshi_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SERVICE_NAME", "unit-test")
+    monkeypatch.setenv("KALSHI_API_KEY", "demo-key")
+    monkeypatch.setenv("KALSHI_API_SECRET", "demo-secret")
+    monkeypatch.setenv("KALSHI_ENVIRONMENT", "production")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.kalshi_api_key == "demo-key"
+    assert settings.kalshi_api_secret == "demo-secret"
+    assert settings.kalshi_environment == "production"

@@ -5,6 +5,8 @@ import pytest
 
 from scripts.migrate import apply_migrations, load_migrations
 
+pytestmark = pytest.mark.integration
+
 
 def test_load_migrations_returns_sorted_by_version() -> None:
     migrations_dir = Path("scripts/db/migrations")
