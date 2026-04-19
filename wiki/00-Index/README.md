@@ -32,6 +32,7 @@ Academic literature, reading list, paper summaries.
 ### 50 — Infrastructure
 Hosting, latency, deployment, costs.
 - [[50-Infrastructure/Hosting-Strategy]] — recommended stack & scale path
+- [[50-Infrastructure/Cursor-Cloud-Agent-Handoff]] — guide for autonomous Cursor background / long-running agent handoffs
 
 ### 60 — Agents
 Prompts, specs, and behaviour definitions for the agents in our research loop.

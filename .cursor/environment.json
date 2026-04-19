@@ -1,0 +1,10 @@
+{
+  "install": "curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv sync --all-packages",
+  "start": "docker compose up -d && ~/.local/bin/uv run python -m scripts.migrate",
+  "terminals": [
+    {
+      "name": "tests",
+      "command": "~/.local/bin/uv run pytest -q"
+    }
+  ]
+}

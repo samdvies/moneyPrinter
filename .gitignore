@@ -41,6 +41,9 @@ data/
 wiki/.obsidian/workspace*
 wiki/.obsidian/cache
 wiki/.trash/
+# Obsidian plugin binaries and per-plugin secrets (API keys in data.json)
+wiki/.obsidian/plugins/
+wiki/.obsidian/community-plugins.json
 
 # OS
 .DS_Store
