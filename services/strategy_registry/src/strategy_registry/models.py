@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -39,6 +40,7 @@ class Strategy(BaseModel):
     updated_at: datetime
     approved_at: datetime | None = None
     approved_by: str | None = None
+    max_exposure_gbp: Decimal = Decimal("1000")
 
 
 class StrategyRun(BaseModel):

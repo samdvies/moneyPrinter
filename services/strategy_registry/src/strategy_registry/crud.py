@@ -38,6 +38,7 @@ def _row_to_strategy(row: Any) -> Strategy:
         updated_at=row["updated_at"],
         approved_at=row["approved_at"],
         approved_by=row["approved_by"],
+        max_exposure_gbp=row["max_exposure_gbp"],
     )
 
 

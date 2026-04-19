@@ -46,6 +46,7 @@ class OrderSignal(_BaseMessage):
     side: OrderSide
     stake: Decimal = Field(gt=0)
     price: Decimal = Field(gt=0)
+    selection_id: str | None = Field(default=None)
 
 
 class ExecutionResult(_BaseMessage):
