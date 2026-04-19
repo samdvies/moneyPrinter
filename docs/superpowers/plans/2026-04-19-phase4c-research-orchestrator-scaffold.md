@@ -33,7 +33,7 @@
 - `services/research_orchestrator/src/research_orchestrator/schemas.py` — `ResearchEvent` Pydantic model: `event_type: str`, `strategy_id: str`, `from_status: str`, `to_status: str`, `timestamp: datetime`. Subclasses `algobet_common.schemas._BaseMessage` (or replicates its `model_config` if `_BaseMessage` is private — check visibility before referencing).
 - `services/research_orchestrator/src/research_orchestrator/runner.py` — async `run_once(db: Database, bus: BusClient, settings: Settings) -> None`:
   1. Call `hypothesize()`.
-  2. Create a strategy in the registry via `strategy_registry.crud.create_strategy(db, slug=hypothesis["name"])`.
+  2. Create a strategy in the registry via `strategy_registry.crud.create_strategy(db, slug=f"{hypothesis['name']}-{uuid4().hex[:8]}")` to avoid unique-key collisions in repeated runs.
   3. Call `run_backtest(hypothesis)`.
   4. If `result["status"] == "stub"`, call `promote(db, bus, strategy.id, Status.BACKTESTING)` then `promote(db, bus, strategy.id, Status.PAPER)`.
   5. Log a summary at INFO with the final strategy status.
@@ -71,7 +71,7 @@
 - [ ] Implement `hypothesize()` in `workflow.py`. Log at INFO. Return the fixed stub dict.
 - [ ] Implement `run_backtest(hypothesis)` in `workflow.py`. Log the hypothesis name at INFO. Return the fixed stub result dict.
 - [ ] Implement `promote(db, bus, strategy_id, to_status)` in `workflow.py`. Guard against `to_status in {Status.LIVE, Status.AWAITING_APPROVAL}` — raise `OrchestratorError(f"orchestrator may not request transition to {to_status}; use the dashboard approval route")`. Fetch current strategy status before transitioning (via `crud.get_strategy`) to populate `from_status` on the `ResearchEvent`. Call `crud.transition`. Publish `ResearchEvent` to `Topic.RESEARCH_EVENTS`. Return updated `Strategy`.
-- [ ] Run `uv run python -c "from research_orchestrator.workflow import hypothesize, run_backtest, promote"` to confirm importability.
+- [ ] Run `SERVICE_NAME=research-orchestrator uv run python -c "from research_orchestrator.workflow import hypothesize, run_backtest, promote"` to confirm importability with required settings.
 - [ ] Run `uv run mypy services/research_orchestrator/src`.
 - [ ] Commit: `feat(orchestrator): errors, schemas, workflow stubs`
 
@@ -106,7 +106,7 @@
   1. Use `require_postgres` and `require_redis` fixtures.
   2. Construct a connected `Database` and `BusClient` from fixture URLs.
   3. Call `await run_once(db, bus, settings)`.
-  4. Assert that a strategy with `slug="stub-hypothesis"` exists in Postgres with `status="paper"` (query via `crud.list_strategies`).
+  4. Assert that a strategy whose slug starts with `"stub-hypothesis-"` exists in Postgres with `status="paper"` (query via `crud.list_strategies`).
   5. Assert that `Topic.RESEARCH_EVENTS` stream in Redis contains at least two entries (one for `backtesting`, one for `paper`), using `redis.asyncio` XREAD.
   6. Assert that no strategy has `status="awaiting-approval"` or `status="live"` (the orchestrator must not have overstepped its authority).
 - [ ] Run `docker compose up -d && uv run python -m scripts.migrate && uv run pytest services/research_orchestrator/tests/test_runner_integration.py -v -m integration`.
@@ -132,7 +132,7 @@ Success criteria:
 ## Open Dependencies / Assumptions
 
 - `strategy_registry` package (Phase 3b) must be complete and importable.
-- The `strategies.slug` column has a unique constraint in the migration. If multiple integration test runs collide on `slug="stub-hypothesis"`, the test must use a unique slug per run (e.g. append a UUID4 suffix). The plan above omits this detail for brevity; the implementer must handle it.
+- The `strategies.slug` column has a unique constraint in the migration; this plan requires a UUID suffix on stub slugs to make repeated local and CI runs idempotent.
 - `Topic.RESEARCH_EVENTS` stream is defined in `algobet_common.bus.Topic` — confirmed present in `bus.py`. No schema change needed.
 - `typer` is added as a new dependency not yet in the workspace. Pin to `typer>=0.12` (supports Python 3.12 and `Annotated` params well).
 - The `_BaseMessage` class in `algobet_common.schemas` is prefixed with `_` indicating it is private. `ResearchEvent` must NOT subclass it directly; copy the `model_config` instead.

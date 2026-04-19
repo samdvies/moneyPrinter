@@ -34,7 +34,7 @@
   - `GET /{strategy_id}` — calls `strategy_registry.crud.get_strategy(db, UUID(strategy_id))`, plus a parameterised query for the 10 most recent `strategy_runs` rows and 20 most recent `orders` rows; returns `StrategyDetailOut`.
   - `POST /{strategy_id}/approve` — body `ApproveBody(approved_by: str)`; calls `strategy_registry.crud.transition(db, UUID(strategy_id), Status.LIVE, approved_by=body.approved_by)`; returns the updated `StrategyOut`. `TODO(auth)` comment required.
 - `services/dashboard/src/dashboard/routers/risk.py` — APIRouter with prefix `/risk`:
-  - `GET /alerts` — accepts optional query param `count: int = 20`; uses `redis.asyncio` XREAD (no consumer group) on `Topic.RISK_ALERTS.value` with `count` and `block=0` (non-blocking); returns list of `RiskAlertOut` response models parsed from the stream entries.
+  - `GET /alerts` — accepts optional query param `count: int = 20`; uses `redis.asyncio` XREAD (no consumer group) on `Topic.RISK_ALERTS.value` with `count` and no `BLOCK` parameter so requests return immediately; returns list of `RiskAlertOut` response models parsed from the stream entries.
 - `services/dashboard/src/dashboard/schemas.py` — Pydantic response models:
   - `StrategyOut` — mirrors `strategy_registry.models.Strategy` fields; all fields, UUID serialised as str.
   - `StrategyRunOut` — mirrors `strategy_registry.models.StrategyRun`.
@@ -71,7 +71,7 @@
 - [ ] Implement `create_app()` in `app.py`. Use `@asynccontextmanager` lifespan: on enter, read `Settings()` (pass `service_name="dashboard"`), connect `Database` and a bare `redis.asyncio.from_url(settings.redis_url)` client, store both on `app.state` as `app.state.db` and `app.state.redis`. On exit, close both. Return the FastAPI instance with the lifespan attached.
 - [ ] Implement `get_db` and `get_redis` in `dependencies.py` as synchronous callables (FastAPI dependency injection does not require async for simple attribute reads).
 - [ ] Implement `__main__.py`: import `create_app`, call `uvicorn.run("dashboard.app:create_app", factory=True, host="0.0.0.0", port=8080, reload=False)`.
-- [ ] Run `uv run python -c "from dashboard.app import create_app; app = create_app()"` to verify importability.
+- [ ] Run `SERVICE_NAME=dashboard uv run python -c "from dashboard.app import create_app; app = create_app()"` to verify importability with required settings.
 - [ ] Run `uv run mypy services/dashboard/src`.
 - [ ] Commit: `feat(dashboard): app factory and dependencies`
 
@@ -132,7 +132,8 @@ Success criteria:
 
 - `strategy_registry` package (Phase 3b) must be installed and importable with `get_strategy`, `list_strategies`, `transition`, `start_run`, `end_run` callable.
 - The `orders` table schema (from `0002_strategy_registry.sql`) must have at least `id`, `strategy_id`, `side`, `stake`, `price`, `status`, `created_at` columns for `OrderOut` to be constructable.
-- Redis XREAD with `id="0"` returns all entries from the beginning of the stream; in production this should be scoped to a recent time-based ID. This is acceptable for the skeleton; a `since` query param can be added in Phase 5.
+- Redis XREAD with `id="0"` and no `BLOCK` returns currently available entries from the beginning of the stream; in production this should be scoped to a recent time-based ID. This is acceptable for the skeleton; a `since` query param can be added in Phase 5.
 - No pagination is implemented for `GET /strategies` — acceptable for Phase 4 (strategy count will be small). Add cursor pagination in Phase 5.
 - `Settings` requires `service_name`; the dashboard passes `"dashboard"` explicitly. If `Settings` is instantiated elsewhere without `service_name`, it will raise a validation error — that is intentional and correct.
 - The `approved_by` field is a free-form string in this phase. Operator identity verification is deferred to Phase 5 auth work.
+- Lifecycle handoff note: this skeleton intentionally implements only the `awaiting-approval -> live` gate endpoint requested in scope. Advancing `paper -> awaiting-approval` remains an operator workflow via strategy-registry tooling in this phase and should be made first-class in a later dashboard iteration.

@@ -19,7 +19,7 @@
   - A signal that fails any rule MUST NOT be published to `order.signals.approved`.
   - The `order.signals.approved` topic is the ONLY input the execution engine trusts. The risk manager MUST NOT republish a partially-checked signal.
   - Reuse `algobet_common.bus.BusClient` and `algobet_common.db.Database`; never re-implement bus or DB primitives.
-  - Default `risk_max_strategy_exposure_gbp` = 1000 (matches CLAUDE.md £1,000 per-strategy cap).
+  - Default `risk_max_strategy_exposure_gbp` = 1000 as the Phase 4 per-signal stake guard; cumulative open-exposure enforcement is deferred and called out explicitly below.
   - UK venues only — `Venue.BETFAIR` and `Venue.KALSHI` are the only recognised values; signals for unrecognised venues are rejected.
 
 ## New Settings Fields
@@ -33,7 +33,7 @@ Add the following optional fields to `services/common/src/algobet_common/config.
 ## File Responsibilities
 
 - `services/risk_manager/pyproject.toml` — uv workspace member; depends on `algobet-common` and `strategy-registry`; no runtime extras.
-- Root `pyproject.toml` — add `risk-manager` to `[tool.uv.workspace] members`, `[tool.uv.sources]`, root `dependencies`, and `[tool.pytest.ini_options] testpaths`.
+- Root `pyproject.toml` — add `risk-manager` to `[tool.uv.workspace] members`, `[tool.uv.sources]`, root `dependencies`, and `[tool.pytest.ini_options] testpaths`; register a `unit` pytest marker for offline rule tests.
 - `services/common/src/algobet_common/config.py` — add three new optional `Settings` fields with defaults; no breaking changes.
 - `services/risk_manager/src/risk_manager/__init__.py` — empty package marker.
 - `services/risk_manager/src/risk_manager/rules.py` — pure functions (no I/O):
@@ -66,7 +66,7 @@ Add the following optional fields to `services/common/src/algobet_common/config.
 - [ ] Create `services/risk_manager/pyproject.toml` as a uv workspace member declaring `name = "risk-manager"`, `requires-python = ">=3.12,<3.13"`, and dependencies on `algobet-common` and `strategy-registry` from workspace sources.
 - [ ] Create `services/risk_manager/src/risk_manager/__init__.py` as an empty file.
 - [ ] Add `risk_max_strategy_exposure_gbp`, `risk_venue_notionals`, and `risk_kill_switch` to `Settings` in `services/common/src/algobet_common/config.py`. Use `Decimal` for monetary fields, `bool` for the kill-switch. All must have defaults that leave existing tests unaffected. Add a validator that JSON-parses `risk_venue_notionals` from an env-string if the raw value is a `str`.
-- [ ] Add `risk-manager` to `[tool.uv.workspace] members` and `[tool.uv.sources]` in root `pyproject.toml`. Add `"risk-manager"` to root `dependencies`. Add `services/risk_manager/tests` to `testpaths`.
+- [ ] Add `risk-manager` to `[tool.uv.workspace] members` and `[tool.uv.sources]` in root `pyproject.toml`. Add `"risk-manager"` to root `dependencies`. Add `services/risk_manager/tests` to `testpaths`. Add pytest marker `unit: tests that run offline without infrastructure`.
 - [ ] Run `uv sync --all-packages` and verify no errors.
 - [ ] Run `uv run mypy services/common/src` and confirm green.
 - [ ] Commit: `feat(risk-manager): workspace skeleton and Settings extension`
@@ -97,7 +97,7 @@ Add the following optional fields to `services/common/src/algobet_common/config.
 - Create: `services/risk_manager/src/risk_manager/engine.py`
 - Create: `services/risk_manager/src/risk_manager/__main__.py`
 
-- [ ] Implement `engine.py` with `async def run(bus: BusClient, db: Database, settings: Settings) -> None`. The function loops calling `bus.consume(Topic.ORDER_SIGNALS, OrderSignal)` (using `async for`). For each `OrderSignal`:
+- [ ] Implement `engine.py` with `async def run(bus: BusClient, db: Database, settings: Settings) -> None`. The function must use an explicit outer `while True` loop and, inside it, iterate `async for` over `bus.consume(Topic.ORDER_SIGNALS, OrderSignal)` because `BusClient.consume()` yields one batch per call (follow the simulator engine pattern). For each `OrderSignal`:
   1. Attempt to fetch the strategy via `strategy_registry.crud.get_strategy(db, UUID(signal.strategy_id))` inside a `try/except StrategyNotFoundError`; on exception pass `strategy_status=None, run_mode=None` to `check_registry_mode`.
   2. If strategy found, query `strategy_runs` for the latest run for that strategy_id using a direct parameterised asyncpg query on `db.acquire()`.
   3. Call all four rule functions in sequence; stop at first `not result.passed`.
