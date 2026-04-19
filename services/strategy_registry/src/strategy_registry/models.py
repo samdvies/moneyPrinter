@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -39,6 +41,35 @@ class Strategy(BaseModel):
     updated_at: datetime
     approved_at: datetime | None = None
     approved_by: str | None = None
+    max_exposure_gbp: Decimal = Decimal("1000")
+
+
+@dataclass(frozen=True)
+class LiabilityComponents:
+    """Aggregated open-order components for a single (strategy, venue, market, selection) group.
+
+    Invariant: for every distinct (venue, market_id, selection_id) present,
+    get_open_liability(strategy_id) >= get_market_liability_components(...).market_liability.
+    This makes projected-total arithmetic sound:
+    projected_total = total_before - market_liability_before + market_liability_after.
+    """
+
+    back_stake: Decimal
+    lay_stake: Decimal
+    back_winnings: Decimal
+    lay_liability: Decimal
+
+    @property
+    def market_liability(self) -> Decimal:
+        """Worst-case loss for this selection group.
+
+        loss_outcome = back_stake - lay_stake  (back-heavy; lay winnings offset)
+        win_outcome  = lay_liability - back_winnings  (lay-heavy; back profits offset)
+        market_liability = max(0, loss_outcome, win_outcome)
+        """
+        loss_outcome = self.back_stake - self.lay_stake
+        win_outcome = self.lay_liability - self.back_winnings
+        return max(Decimal("0"), loss_outcome, win_outcome)
 
 
 class StrategyRun(BaseModel):

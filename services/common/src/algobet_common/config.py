@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     # Risk manager settings — safe defaults leave existing services unaffected.
     risk_max_strategy_exposure_gbp: Decimal = Decimal("1000")
+    risk_max_signal_liability_gbp: Decimal = Decimal("1000")
     risk_venue_notionals: dict[str, Decimal] = Field(default_factory=dict)
     risk_kill_switch: bool = False
 
