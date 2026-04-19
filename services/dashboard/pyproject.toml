@@ -1,0 +1,26 @@
+[project]
+name = "dashboard"
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "algobet-common",
+    "strategy-registry",
+    "fastapi[standard]",
+    "uvicorn[standard]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dashboard"]
+
+[tool.uv.sources]
+algobet-common = { workspace = true }
+strategy-registry = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+]
