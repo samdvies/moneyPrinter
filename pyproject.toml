@@ -3,14 +3,15 @@ name = "algo-betting"
 version = "0.0.1"
 requires-python = ">=3.12,<3.13"
 description = "Agentic algorithmic betting ecosystem for Betfair + Kalshi"
-dependencies = ["algobet-common", "ingestion"]
+dependencies = ["algobet-common", "ingestion", "simulator"]
 
 [tool.uv.sources]
 algobet-common = { workspace = true }
 ingestion = { workspace = true }
+simulator = { workspace = true }
 
 [tool.uv.workspace]
-members = ["services/common", "services/ingestion"]
+members = ["services/common", "services/ingestion", "services/simulator"]
 
 [dependency-groups]
 dev = [
@@ -23,7 +24,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["services/common/tests", "services/ingestion/tests"]
+testpaths = ["services/common/tests", "services/ingestion/tests", "services/simulator/tests"]
 # Both test packages are named `tests`; importlib mode isolates them so
 # collection doesn't fail with ImportPathMismatchError.
 addopts = ["--import-mode=importlib"]
