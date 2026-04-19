@@ -58,22 +58,6 @@ async def record_order(
         return _warn_alert(f"OrderSignal dropped: run_id is not a valid UUID ({run_id!r})")
 
     async with db.acquire() as conn:
-        strategy_exists = await conn.fetchval(
-            "SELECT 1 FROM strategies WHERE id = $1",
-            strategy_uuid,
-        )
-        if not strategy_exists:
-            return _warn_alert(
-                f"OrderSignal dropped: strategy_id={signal.strategy_id!r} not found in registry"
-            )
-
-        run_exists = await conn.fetchval(
-            "SELECT 1 FROM strategy_runs WHERE id = $1",
-            run_uuid,
-        )
-        if not run_exists:
-            return _warn_alert(f"OrderSignal dropped: run_id={run_id!r} not found in registry")
-
         try:
             await conn.execute(
                 """
@@ -89,19 +73,32 @@ async def record_order(
                 signal.venue.value,
                 signal.market_id,
                 signal.side.value,
-                float(signal.stake),
-                float(signal.price),
+                signal.stake,
+                signal.price,
                 "placed",
                 datetime.now(UTC),
             )
         except asyncpg.ForeignKeyViolationError as exc:
-            return _warn_alert(f"OrderSignal dropped: FK violation — {exc}")
+            # asyncpg surfaces the offending FK via constraint_name / detail.
+            constraint = getattr(exc, "constraint_name", None) or ""
+            detail = str(exc)
+            if "run" in constraint.lower() or "strategy_runs" in detail:
+                return _warn_alert(f"OrderSignal dropped: run_id={run_id!r} not found in registry")
+            return _warn_alert(
+                f"OrderSignal dropped: strategy_id={signal.strategy_id!r} not found in registry"
+            )
 
     return None
 
 
 async def record_fill(result: ExecutionResult, run_id: str, db: Database) -> None:
-    """Update an existing order row with fill data."""
+    """Update an existing order row with fill data.
+
+    Skips the UPDATE when nothing filled — the row was already inserted with
+    status='placed' and null fill columns, so an update would be a no-op.
+    """
+    if result.filled_stake == 0:
+        return
     async with db.acquire() as conn:
         await conn.execute(
             """
@@ -112,7 +109,7 @@ async def record_fill(result: ExecutionResult, run_id: str, db: Database) -> Non
             WHERE id = $4
             """,
             result.status,
-            float(result.filled_price) if result.filled_price is not None else None,
+            result.filled_price,
             result.timestamp if result.status in ("filled", "partially_filled") else None,
             uuid.UUID(result.order_id),
         )
