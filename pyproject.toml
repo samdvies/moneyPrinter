@@ -26,4 +26,7 @@ asyncio_mode = "auto"
 testpaths = ["services/common/tests", "services/ingestion/tests"]
 # Both test packages are named `tests`; importlib mode isolates them so
 # collection doesn't fail with ImportPathMismatchError.
-importmode = "importlib"
+addopts = ["--import-mode=importlib"]
+markers = [
+    "integration: requires local Redis/Postgres service containers",
+]

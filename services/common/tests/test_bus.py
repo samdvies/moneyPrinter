@@ -7,7 +7,7 @@ from algobet_common.schemas import MarketData, Venue
 
 
 @pytest.mark.asyncio
-async def test_publish_and_consume_roundtrip(redis_url: str) -> None:
+async def test_publish_and_consume_roundtrip(redis_url: str, _flush_redis: None) -> None:
     client = BusClient(redis_url, service_name="test-service")
     await client.connect()
     try:
@@ -33,7 +33,7 @@ async def test_publish_and_consume_roundtrip(redis_url: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_consumer_group_isolation(redis_url: str) -> None:
+async def test_consumer_group_isolation(redis_url: str, _flush_redis: None) -> None:
     """Different service names form different consumer groups."""
     publisher = BusClient(redis_url, service_name="pub")
     await publisher.connect()

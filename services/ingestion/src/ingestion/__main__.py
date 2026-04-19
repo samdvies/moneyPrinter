@@ -1,9 +1,4 @@
-"""Ingestion entrypoint.
-
-Phase 1 scaffolding: publishes a single dummy market.data tick so the
-end-to-end bus path can be smoke-tested. Real Betfair/Kalshi feeds land
-in Phase 2 per the design spec.
-"""
+"""Ingestion entrypoint."""
 
 from __future__ import annotations
 
@@ -15,8 +10,13 @@ from algobet_common.bus import BusClient, Topic
 from algobet_common.config import Settings
 from algobet_common.schemas import MarketData, Venue
 
+from ingestion.betfair_adapter import (
+    IngestionCredentialsError,
+    run_betfair_stream_loop,
+)
 
-async def publish_dummy_tick(bus: BusClient, market_id: str = "scaffold.001") -> None:
+
+async def publish_synthetic_tick(bus: BusClient, market_id: str = "scaffold.001") -> None:
     tick = MarketData(
         venue=Venue.BETFAIR,
         market_id=market_id,
@@ -27,13 +27,32 @@ async def publish_dummy_tick(bus: BusClient, market_id: str = "scaffold.001") ->
     await bus.publish(Topic.MARKET_DATA, tick)
 
 
+async def publish_dummy_tick(bus: BusClient, market_id: str = "scaffold.001") -> None:
+    """Backward-compatible alias retained for existing smoke/test entrypoints."""
+    await publish_synthetic_tick(bus=bus, market_id=market_id)
+
+
 async def _main() -> None:
     settings = Settings()
     bus = BusClient(settings.redis_url, settings.service_name)
     await bus.connect()
     try:
-        await publish_dummy_tick(bus)
-        print(f"[{settings.service_name}] published dummy tick to {Topic.MARKET_DATA.value}")
+        # TODO(spec §Invariants-2): when simulator/execution APIs are added,
+        # keep paper/live interfaces identical so promotion stays config-only.
+        await run_betfair_stream_loop(
+            bus=bus,
+            username=settings.betfair_username or "",
+            password=settings.betfair_password or "",
+            app_key=settings.betfair_app_key or "",
+            certs_dir=settings.betfair_certs_dir or "",
+            market_ids=settings.betfair_market_ids,
+            conflate_ms=settings.betfair_stream_conflate_ms,
+            reconnect_delay_seconds=settings.betfair_reconnect_delay_seconds,
+            poll_interval_seconds=settings.betfair_poll_interval_seconds,
+        )
+    except IngestionCredentialsError as exc:
+        print(f"[{settings.service_name}] ingestion configuration error: {exc}")
+        raise
     finally:
         await bus.close()
 

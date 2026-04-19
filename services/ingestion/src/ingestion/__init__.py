@@ -1,1 +1,1 @@
-"""Market data ingestion service (scaffold — real feeds come in Phase 2)."""
+"""Market data ingestion service for Betfair market streams."""
