@@ -1,5 +1,5 @@
 {
-  "install": "curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv sync --all-packages",
+  "install": "curl -LsSf https://astral.sh/uv/install.sh | sh && ~/.local/bin/uv sync --all-packages && cp -n .env.example .env",
   "start": "docker compose up -d && ~/.local/bin/uv run python -m scripts.migrate",
   "terminals": [
     {
