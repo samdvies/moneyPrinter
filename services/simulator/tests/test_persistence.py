@@ -7,11 +7,11 @@ Tagged with pytest.mark.integration.
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-
 from algobet_common.db import Database
 from algobet_common.schemas import ExecutionResult, OrderSide, OrderSignal, Venue
 from simulator.persistence import record_fill, record_order
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-async def db(postgres_dsn: str, require_postgres: None) -> Database:
+async def db(postgres_dsn: str, require_postgres: None) -> AsyncIterator[Database]:
     database = Database(postgres_dsn)
     await database.connect()
     yield database
@@ -28,7 +28,7 @@ async def db(postgres_dsn: str, require_postgres: None) -> Database:
 
 
 @pytest.fixture
-async def strategy_and_run(db: Database) -> tuple[str, str]:
+async def strategy_and_run(db: Database) -> AsyncIterator[tuple[str, str]]:
     """Insert a test strategy + run row; clean up on teardown."""
     strategy_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())

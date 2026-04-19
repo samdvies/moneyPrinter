@@ -29,6 +29,23 @@ services:
       timeout: 3s
       retries: 10
 
+  # Uncomment to run the simulator as a managed container:
+  # simulator:
+  #   build:
+  #     context: .
+  #     dockerfile: services/simulator/Dockerfile
+  #   environment:
+  #     SERVICE_NAME: simulator
+  #     REDIS_HOST: redis
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

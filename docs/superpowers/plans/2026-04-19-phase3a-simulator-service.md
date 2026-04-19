@@ -52,41 +52,41 @@ Stand up the paper-trading simulator service so strategies can emit `OrderSignal
 
 ### Task 1 — Workspace skeleton
 
-- [ ] Add `services/simulator/` uv-workspace member with `pyproject.toml`, `src/simulator/__init__.py`, `src/simulator/__main__.py` (prints `simulator starting` and exits cleanly).
-- [ ] Register the package in the root `pyproject.toml` workspace members and `[tool.uv.sources]`.
-- [ ] Extend `testpaths` in the root `pyproject.toml` to include `services/simulator/tests`.
-- [ ] `uv sync --all-packages` must succeed; CI smoke must still pass.
+- [x] Add `services/simulator/` uv-workspace member with `pyproject.toml`, `src/simulator/__init__.py`, `src/simulator/__main__.py` (prints `simulator starting` and exits cleanly).
+- [x] Register the package in the root `pyproject.toml` workspace members and `[tool.uv.sources]`.
+- [x] Extend `testpaths` in the root `pyproject.toml` to include `services/simulator/tests`.
+- [x] `uv sync --all-packages` must succeed; CI smoke must still pass.
 
 Why: unblocks subsequent tasks and enforces the one-workspace-member-per-service convention.
 
 ### Task 2 — In-memory book
 
-- [ ] Implement `book.Book` with `update(MarketData)` and `get(venue, market_id) -> MarketData | None`.
-- [ ] Reject stale updates by timestamp.
-- [ ] Unit tests: update/get, stale-ignore, unknown-market returns None.
+- [x] Implement `book.Book` with `update(MarketData)` and `get(venue, market_id) -> MarketData | None`.
+- [x] Reject stale updates by timestamp.
+- [x] Unit tests: update/get, stale-ignore, unknown-market returns None.
 
 ### Task 3 — Pure fill engine
 
-- [ ] Implement `fills.match_order` per matching rules above.
-- [ ] Implement partial-fill + VWAP helpers as private functions in the same module.
-- [ ] Unit tests per the list under `test_fills.py`.
+- [x] Implement `fills.match_order` per matching rules above.
+- [x] Implement partial-fill + VWAP helpers as private functions in the same module.
+- [x] Unit tests per the list under `test_fills.py`.
 
 ### Task 4 — Engine wiring
 
-- [ ] Implement `engine.run` composing book + fills + bus + persistence.
-- [ ] Guard live-mode signals with a `RiskAlert`.
-- [ ] Structured logging on each decision (accept / reject / fill) using the service_name prefix pattern from ingestion.
+- [x] Implement `engine.run` composing book + fills + bus + persistence.
+- [x] Guard live-mode signals with a `RiskAlert`.
+- [x] Structured logging on each decision (accept / reject / fill) using the service_name prefix pattern from ingestion.
 
 ### Task 5 — Persistence
 
-- [ ] Implement `persistence.record_order` and `persistence.record_fill`.
-- [ ] Missing strategy_id / run_id path emits `RiskAlert` and drops the signal.
-- [ ] Tag DB-touching tests with `@pytest.mark.integration`.
+- [x] Implement `persistence.record_order` and `persistence.record_fill`.
+- [x] Missing strategy_id / run_id path emits `RiskAlert` and drops the signal.
+- [x] Tag DB-touching tests with `@pytest.mark.integration`.
 
 ### Task 6 — Integration test
 
-- [ ] End-to-end test: publish a `MarketData` tick, publish a paper `OrderSignal` that crosses, assert an `ExecutionResult` is published with the expected fill and that an `orders` row lands in Postgres.
-- [ ] Second case: publish a live-mode signal; assert it is NOT executed and that a `RiskAlert` is emitted.
+- [x] End-to-end test: publish a `MarketData` tick, publish a paper `OrderSignal` that crosses, assert an `ExecutionResult` is published with the expected fill and that an `orders` row lands in Postgres.
+- [x] Second case: publish a live-mode signal; assert it is NOT executed and that a `RiskAlert` is emitted.
 
 ## Verification Plan
 
