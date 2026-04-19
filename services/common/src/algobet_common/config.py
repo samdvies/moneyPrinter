@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     betfair_reconnect_delay_seconds: float = 5.0
     betfair_poll_interval_seconds: float = 0.25
     betfair_market_ids_csv: str = ""
+    kalshi_api_key: str | None = Field(
+        default=None, description="Kalshi API key for authenticated REST/WebSocket access."
+    )
+    kalshi_api_secret: str | None = Field(
+        default=None, description="Kalshi API secret paired with the configured API key."
+    )
+    kalshi_environment: str | None = Field(
+        default="demo", description="Kalshi environment selector (for example: demo, prod)."
+    )
 
     @property
     def betfair_market_ids(self) -> list[str]:
