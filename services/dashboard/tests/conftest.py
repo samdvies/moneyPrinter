@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
 
 
 @pytest.fixture
@@ -32,20 +33,28 @@ def _override_env(
         monkeypatch.setenv("REDIS_DB", red.group(3))
 
     monkeypatch.setenv("SERVICE_NAME", "dashboard")
+    # Tests run over plain http; allow cookies to be sent without TLS.
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    monkeypatch.setenv("DASHBOARD_ALLOWED_ORIGINS", '["http://127.0.0.1"]')
 
 
 @pytest_asyncio.fixture
-async def client(
+async def app(
     require_postgres: None,
     require_redis: None,
     _flush_redis: None,
     _override_env: None,
-) -> AsyncIterator[httpx.AsyncClient]:
+) -> AsyncIterator[FastAPI]:
     from dashboard.app import create_app
 
-    app = create_app()
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c,
-    ):
+    application = create_app()
+    async with application.router.lifespan_context(application):
+        yield application
+
+
+@pytest_asyncio.fixture
+async def client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as c:
         yield c

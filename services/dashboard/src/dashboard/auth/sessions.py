@@ -79,6 +79,26 @@ async def lookup_session(
     return await crud.get_operator_by_id(db, operator_id)
 
 
+async def get_session_operator_id(r: redis.Redis, *, token: str) -> uuid.UUID | None:
+    """Return the operator_id for an active session, else None.
+
+    Cheaper than `lookup_session` when we only need the identity — skips
+    the DB round-trip. Used by login to decide whether a presented
+    pre-auth token belongs to the authenticating operator.
+    """
+    if not token:
+        return None
+    raw = await r.get(_session_key(token))
+    if raw is None:
+        return None
+    try:
+        text = raw.decode("utf-8") if isinstance(raw, bytes | bytearray) else raw
+        payload = json.loads(text)
+        return uuid.UUID(payload["operator_id"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
 async def destroy_session(r: redis.Redis, *, token: str) -> None:
     """Best-effort destroy: removes primary + secondary-index membership."""
     if not token:
