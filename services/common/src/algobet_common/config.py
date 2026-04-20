@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -66,6 +66,41 @@ class Settings(BaseSettings):
     risk_max_signal_liability_gbp: Decimal = Decimal("1000")
     risk_venue_notionals: dict[str, Decimal] = Field(default_factory=dict)
     risk_kill_switch: bool = False
+
+    # Dashboard auth — session cookies default fail-closed (Secure=True).
+    # Local dev over plain HTTP must opt out via DASHBOARD_INSECURE_COOKIES=1
+    # in the fixture env, not in shipped defaults.
+    session_ttl_seconds: int = 28800
+    cookie_secure: bool = True
+    cookie_samesite: Literal["lax", "strict"] = "lax"
+    dashboard_allowed_origins: list[str] = Field(
+        default_factory=lambda: ["http://127.0.0.1:8000", "http://localhost:8000"]
+    )
+    login_rate_limit_ip: tuple[int, int] = (5, 300)
+    login_rate_limit_email: tuple[int, int] = (10, 900)
+
+    @field_validator("dashboard_allowed_origins", mode="before")
+    @classmethod
+    def _parse_allowed_origins(cls, v: Any) -> Any:
+        """Accept a JSON list or comma-separated string from env."""
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped.startswith("["):
+                return json.loads(stripped)
+            return [part.strip() for part in stripped.split(",") if part.strip()]
+        return v
+
+    @field_validator("login_rate_limit_ip", "login_rate_limit_email", mode="before")
+    @classmethod
+    def _parse_rate_limit(cls, v: Any) -> Any:
+        """Accept `"max,window"` or JSON `[max, window]` from env."""
+        if isinstance(v, str):
+            stripped = v.strip()
+            parts = json.loads(stripped) if stripped.startswith("[") else stripped.split(",")
+            if len(parts) != 2:
+                raise ValueError("rate-limit setting must be `max,window`")
+            return (int(parts[0]), int(parts[1]))
+        return v
 
     @field_validator("risk_venue_notionals", mode="before")
     @classmethod
