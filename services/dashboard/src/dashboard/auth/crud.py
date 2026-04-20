@@ -104,3 +104,26 @@ async def update_password(
         )
     # asyncpg returns e.g. "UPDATE 1" or "UPDATE 0"
     return result.endswith(" 1")
+
+
+async def admin_reset_password(
+    db: Database,
+    *,
+    operator_id: uuid.UUID,
+    new_hash: str,
+) -> bool:
+    """Blind overwrite of an operator's password hash. Used by the bootstrap
+    CLI (`create_operator.py --rotate`) where the admin does not possess the
+    old hash. Returns True iff the operator row exists."""
+    async with db.acquire() as conn:
+        result: str = await conn.execute(
+            """
+            UPDATE operators
+               SET password_hash = $2,
+                   last_password_change_at = now()
+             WHERE id = $1
+            """,
+            operator_id,
+            new_hash,
+        )
+    return result.endswith(" 1")
