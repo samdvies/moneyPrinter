@@ -51,10 +51,6 @@ class StrategyDetailOut(StrategyOut):
     recent_orders: list[OrderOut] = Field(default_factory=list)
 
 
-class ApproveBody(BaseModel):
-    approved_by: str = Field(min_length=1)
-
-
 class RiskAlertOut(BaseModel):
     stream_id: str
     source: str

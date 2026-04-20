@@ -14,8 +14,10 @@ from strategy_registry.errors import (
 )
 from strategy_registry.models import Status
 
+from ..auth.dependencies import require_csrf, require_operator
+from ..auth.models import Operator
 from ..dependencies import get_db
-from ..schemas import ApproveBody, OrderOut, StrategyDetailOut, StrategyOut, StrategyRunOut
+from ..schemas import OrderOut, StrategyDetailOut, StrategyOut, StrategyRunOut
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
@@ -69,12 +71,12 @@ async def get_strategy(
 @router.post("/{strategy_id}/approve", response_model=StrategyOut)
 async def approve_strategy(
     strategy_id: uuid.UUID,
-    body: ApproveBody,
+    operator: Operator = Depends(require_operator),  # noqa: B008
+    _csrf: None = Depends(require_csrf),
     db: Database = Depends(get_db),  # noqa: B008
 ) -> StrategyOut:
-    # TODO(auth): this route is the live-capital gate; protect with operator authentication before production use  # noqa: E501
     try:
-        updated = await crud.transition(db, strategy_id, Status.LIVE, approved_by=body.approved_by)
+        updated = await crud.transition(db, strategy_id, Status.LIVE, approved_by=operator.email)
     except StrategyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (InvalidTransitionError, ApprovalRequiredError) as exc:
