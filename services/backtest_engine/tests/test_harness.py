@@ -211,6 +211,120 @@ async def test_harness_seals_run_with_failure_metrics_when_strategy_raises(
     assert "BoomError" in metrics["error"]
 
 
+def _mean_reverting_ticks(
+    *,
+    n_ticks: int = 300,
+    mean: Decimal = Decimal("2.00"),
+    pull: float = 0.2,
+    noise: float = 0.05,
+    drift: Decimal = Decimal("0"),
+    seed: int = 42,
+    spread: Decimal = Decimal("0.02"),
+) -> list[MarketData]:
+    """Deterministic AR(1) mid-price series with optional trend drift.
+
+    Shared by the orchestrator and the harness tests so both assert against
+    the same ground-truth series shape. ``pull > 0`` pulls the process
+    toward ``mean``; ``drift > 0`` biases each step upward (mean-reversion
+    strategy must lose on a trended series).
+    """
+    import random
+
+    rng = random.Random(seed)
+    base = datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)
+    mean_f = float(mean)
+    drift_f = float(drift)
+    price = mean_f
+    half_spread = spread / Decimal(2)
+    ticks: list[MarketData] = []
+    for i in range(n_ticks):
+        # AR(1): price_{t+1} = mean + (1 - pull) * (price_t - mean) + drift + noise
+        price = mean_f + (1.0 - pull) * (price - mean_f) + drift_f + rng.gauss(0, noise)
+        if price <= 1.01:
+            price = 1.01
+        mid = Decimal(str(round(price, 4)))
+        ticks.append(
+            MarketData(
+                venue=Venue.BETFAIR,
+                market_id="test.harness.mr",
+                timestamp=base + timedelta(seconds=i),
+                bids=[(mid - half_spread, Decimal("100"))],
+                asks=[(mid + half_spread, Decimal("100"))],
+            )
+        )
+    return ticks
+
+
+async def test_harness_total_pnl_positive_on_mean_reverting_series() -> None:
+    """The mean-reversion strategy must make money on a strongly mean-reverting series."""
+    from backtest_engine.strategies import mean_reversion as mr_module
+
+    ticks = _mean_reverting_ticks(n_ticks=300, pull=0.4, noise=0.05, drift=Decimal("0"))
+    source = SyntheticSource(ticks)
+    start = ticks[0].timestamp
+    end = ticks[-1].timestamp
+    strategy = cast(StrategyModule, mr_module)
+    params: dict[str, Any] = {
+        "window_size": 30,
+        "z_threshold": 1.5,
+        "stake_gbp": "10",
+        "venue": "betfair",
+    }
+    result = await run_backtest(
+        strategy=strategy,
+        params=params,
+        source=source,
+        time_range=(start, end),
+    )
+    assert result["n_trades"] > 0
+    assert result["total_pnl_gbp"] > Decimal("0"), (
+        f"mean-reverting series should be profitable for mean-reversion strategy; "
+        f"got total_pnl_gbp={result['total_pnl_gbp']}"
+    )
+
+
+async def test_harness_total_pnl_nonpositive_on_trending_series() -> None:
+    """On a strongly trending series the mean-reversion strategy should lose
+    money (or at best break even) — proving the harness discriminates."""
+    from backtest_engine.strategies import mean_reversion as mr_module
+
+    # Strong monotonic trend (pull=0 so no reversion; drift>>noise so price
+    # marches up): the rolling mean lags by ``window_size`` ticks, triggering
+    # a steady stream of LAY signals at "high" z — prices that are only high
+    # relative to stale history.  Each LAY is opened; the price continues up,
+    # so no opposite-side close ever occurs.  The only closed positions come
+    # from tiny noise retracements which are losers.  Net realised P&L must
+    # be <= 0.
+    ticks = _mean_reverting_ticks(
+        n_ticks=300,
+        pull=0.0,
+        noise=0.005,
+        drift=Decimal("0.01"),
+    )
+    source = SyntheticSource(ticks)
+    start = ticks[0].timestamp
+    end = ticks[-1].timestamp
+    strategy = cast(StrategyModule, mr_module)
+    # Fresh params dict — the strategy mutates ``_window`` in place, so we
+    # MUST NOT reuse a params dict between runs.
+    params: dict[str, Any] = {
+        "window_size": 30,
+        "z_threshold": 1.5,
+        "stake_gbp": "10",
+        "venue": "betfair",
+    }
+    result = await run_backtest(
+        strategy=strategy,
+        params=params,
+        source=source,
+        time_range=(start, end),
+    )
+    assert result["total_pnl_gbp"] <= Decimal("0"), (
+        f"trending series must not be profitable for mean-reversion strategy; "
+        f"got total_pnl_gbp={result['total_pnl_gbp']}"
+    )
+
+
 async def test_harness_result_shape_matches_contract() -> None:
     ticks = [_tick(0)]
     source = SyntheticSource(ticks)

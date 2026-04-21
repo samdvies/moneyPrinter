@@ -42,11 +42,11 @@ from strategy_registry import crud
 from strategy_registry.models import Mode
 
 from backtest_engine.metrics import (
-    _trivial_settlement,
+    build_delta_pnl_settlement,
     max_drawdown_gbp,
     sharpe,
-    total_pnl_gbp,
-    win_rate,
+    total_pnl_gbp_from_pnls,
+    win_rate_from_pnls,
 )
 from backtest_engine.strategy_protocol import StrategyModule, TickSource
 
@@ -104,7 +104,7 @@ async def run_backtest(
     injects a fixed clock so every key of the result dict (including the
     bookend timestamps) is bit-identical across replays.
     """
-    del starting_bankroll_gbp  # reserved for 6b real settlement
+    del starting_bankroll_gbp  # reserved for future settlement enrichment
 
     started_at = clock()
 
@@ -114,10 +114,14 @@ async def run_backtest(
         run_id = run.id
 
     book = Book()
-    fills: list[ExecutionResult] = []
+    # Per-fill log: (ExecutionResult, realised_pnl). The realised P&L comes
+    # from a single stateful settlement closure instantiated per run, so the
+    # equity curve and the terminal total both consult one source of truth.
+    fill_log: list[tuple[ExecutionResult, Decimal]] = []
     per_tick_pnl: list[Decimal] = []
     equity_curve: list[Decimal] = []
     running_pnl = Decimal("0")
+    settlement = build_delta_pnl_settlement()
     # ``ticks_seen`` is updated *before* ``strategy.on_tick`` so that a mid-tick
     # raise still reports how many ticks were consumed up to (but not including)
     # the failing tick. The ``finally`` block reads this counter when writing
@@ -138,9 +142,9 @@ async def run_backtest(
                     return ts
 
                 result = match_order(signal, tick, now_fn=_tick_clock)
-                fills.append(result)
-                if result.filled_stake > Decimal("0"):
-                    tick_pnl = _trivial_settlement(result)
+                realised = settlement(signal, result)
+                fill_log.append((result, realised))
+                tick_pnl = realised
 
             running_pnl += tick_pnl
             per_tick_pnl.append(tick_pnl)
@@ -162,12 +166,13 @@ async def run_backtest(
 
     ended_at = clock()
 
+    realised_pnls = [pnl for _result, pnl in fill_log]
     result_dict: BacktestResult = {
         "sharpe": sharpe(per_tick_pnl),
-        "total_pnl_gbp": total_pnl_gbp(fills),
+        "total_pnl_gbp": total_pnl_gbp_from_pnls(realised_pnls),
         "max_drawdown_gbp": max_drawdown_gbp(equity_curve),
-        "n_trades": sum(1 for f in fills if f.filled_stake > Decimal("0")),
-        "win_rate": win_rate(fills),
+        "n_trades": sum(1 for result, _pnl in fill_log if result.filled_stake > Decimal("0")),
+        "win_rate": win_rate_from_pnls(realised_pnls),
         "n_ticks_consumed": ticks_seen,
         "started_at": started_at,
         "ended_at": ended_at,
