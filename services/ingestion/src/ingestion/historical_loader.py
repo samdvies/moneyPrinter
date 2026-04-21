@@ -19,11 +19,21 @@ Design notes:
   decode in this module rather than shoehorning mcm into the live adapter.
 * Idempotency uses ``ON CONFLICT (venue, market_id, observed_at) DO NOTHING``.
 * Row-count return uses ``INSERT ... RETURNING 1`` so we count rows that were
-  actually inserted (not merely processed).
+  actually inserted (not merely processed). Inserts are issued one SQL
+  statement per batch via asyncpg's ``unnest`` trick, so flushing a 5000-row
+  batch is a single round-trip, not 5000.
+
+Config:
+
+* ``algobet_common.config.Settings.historical_archive_dir`` and
+  ``historical_load_batch_size`` populate the CLI entrypoint
+  :func:`main_from_env` — run ``python -m ingestion.historical_loader`` to
+  drive the loader end-to-end from environment settings.
 """
 
 from __future__ import annotations
 
+import asyncio
 import bz2
 import json
 import logging
@@ -39,10 +49,17 @@ from algobet_common.schemas import MarketData, Venue
 
 LOGGER = logging.getLogger(__name__)
 
+# Single batched INSERT statement: one SQL parse + one round-trip regardless
+# of batch size. RETURNING 1 yields one row per *actual* insertion (ON
+# CONFLICT DO NOTHING suppresses conflict rows from RETURNING), so
+# len(result) == rows actually written.
 _INSERT_SQL = (
     "INSERT INTO market_data_archive "
     "(venue, market_id, observed_at, bids, asks, last_trade) "
-    "VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6) "
+    "SELECT * FROM unnest("
+    "  $1::text[], $2::text[], $3::timestamptz[], "
+    "  $4::jsonb[], $5::jsonb[], $6::numeric[]"
+    ") "
     "ON CONFLICT (venue, market_id, observed_at) DO NOTHING "
     "RETURNING 1"
 )
@@ -178,21 +195,31 @@ async def _insert_batch(
     venue: str,
     batch: list[MarketData],
 ) -> int:
-    """Insert one batch; return count of rows actually inserted (not conflicted)."""
-    inserted = 0
-    for tick in batch:
-        rows = await conn.fetch(
-            _INSERT_SQL,
-            venue,
-            tick.market_id,
-            tick.timestamp,
-            _serialise_ladder(tick.bids),
-            _serialise_ladder(tick.asks),
-            tick.last_trade,
-        )
-        if rows:
-            inserted += 1
-    return inserted
+    """Insert one batch in a single SQL round-trip.
+
+    Uses asyncpg's ``unnest`` trick so arbitrary batch sizes cost one SQL
+    parse. Returns the count of rows actually inserted; ``ON CONFLICT DO
+    NOTHING`` filters conflicting rows out of ``RETURNING 1``.
+    """
+    if not batch:
+        return 0
+    n = len(batch)
+    venues = [venue] * n
+    market_ids = [tick.market_id for tick in batch]
+    timestamps = [tick.timestamp for tick in batch]
+    bids = [_serialise_ladder(tick.bids) for tick in batch]
+    asks = [_serialise_ladder(tick.asks) for tick in batch]
+    last_trades = [tick.last_trade for tick in batch]
+    rows = await conn.fetch(
+        _INSERT_SQL,
+        venues,
+        market_ids,
+        timestamps,
+        bids,
+        asks,
+        last_trades,
+    )
+    return len(rows)
 
 
 async def _drain_in_batches(
@@ -281,3 +308,40 @@ async def load_archive(
         )
 
     raise ValueError(f"unknown source: {source!r}")
+
+
+async def main_from_env() -> int:
+    """CLI entrypoint: wire ``Settings`` into :func:`load_archive`.
+
+    Reads ``historical_archive_dir`` and ``historical_load_batch_size`` from
+    :class:`algobet_common.config.Settings` and drives the ``betfair_tar``
+    loader. Raises ``ValueError`` if ``historical_archive_dir`` is unset.
+    """
+    from algobet_common.config import Settings
+    from algobet_common.db import Database
+
+    settings = Settings()
+    if not settings.historical_archive_dir:
+        raise ValueError(
+            "historical_archive_dir is not configured; set HISTORICAL_ARCHIVE_DIR in env"
+        )
+
+    db = Database(settings.postgres_dsn)
+    await db.connect()
+    try:
+        async with db.acquire() as conn:
+            return await load_archive(
+                "betfair_tar",
+                conn=conn,
+                venue="betfair",
+                archive_dir=settings.historical_archive_dir,
+                batch_size=settings.historical_load_batch_size,
+            )
+    finally:
+        await db.close()
+
+
+if __name__ == "__main__":  # pragma: no cover - invoked via python -m
+    logging.basicConfig(level=logging.INFO)
+    inserted = asyncio.run(main_from_env())
+    LOGGER.info("historical_loader inserted %d rows", inserted)

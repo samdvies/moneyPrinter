@@ -19,6 +19,7 @@ from ingestion.historical_loader import (
     iter_archive_from_directory,
     iter_mcm_lines_from_tar,
     load_archive,
+    main_from_env,
 )
 
 # ---------------------------------------------------------------------------
@@ -215,21 +216,31 @@ async def test_load_archive_redis_xrange_yields_all_entries() -> None:
             await client.xadd("market.data", {"json": msg.model_dump_json()})
 
         collected: list[MarketData] = []
+        fetch_calls = 0
 
         class _CaptureConn:
             async def fetch(self, _sql: str, *args: Any) -> list[object]:
-                # Build a MarketData echo so the test asserts round-trip shape.
-                collected.append(
-                    MarketData(
-                        venue=Venue(args[0]),
-                        market_id=str(args[1]),
-                        timestamp=args[2],
-                        bids=[(Decimal(p), Decimal(s)) for p, s in json.loads(str(args[3]))],
-                        asks=[(Decimal(p), Decimal(s)) for p, s in json.loads(str(args[4]))],
-                        last_trade=args[5],
+                # Batched form: args are parallel lists (venues, market_ids,
+                # timestamps, bids, asks, last_trades). Build MarketData
+                # echoes so the test asserts round-trip shape and row order.
+                nonlocal fetch_calls
+                fetch_calls += 1
+                venues, market_ids, timestamps, bids, asks, last_trades = args
+                for venue, market_id, ts, bid_json, ask_json, ltp in zip(
+                    venues, market_ids, timestamps, bids, asks, last_trades, strict=True
+                ):
+                    collected.append(
+                        MarketData(
+                            venue=Venue(venue),
+                            market_id=str(market_id),
+                            timestamp=ts,
+                            bids=[(Decimal(p), Decimal(s)) for p, s in json.loads(str(bid_json))],
+                            asks=[(Decimal(p), Decimal(s)) for p, s in json.loads(str(ask_json))],
+                            last_trade=ltp,
+                        )
                     )
-                )
-                return [1]  # pretend one row inserted
+                # Pretend every row inserted (no conflicts).
+                return [1] * len(venues)
 
         inserted = await load_archive(
             "redis_xrange",
@@ -241,6 +252,9 @@ async def test_load_archive_redis_xrange_yields_all_entries() -> None:
         )
 
         assert inserted == 5
+        # 5 rows at batch_size=2 => three flushes (2 + 2 + 1), i.e. 3 SQL
+        # round-trips — not 5. Guards against regressing to per-row inserts.
+        assert fetch_calls == 3
         assert [t.market_id for t in collected] == [
             "1.234:100",
             "1.234:101",
@@ -290,6 +304,95 @@ async def test_load_archive_requires_archive_dir_for_tar_mode() -> None:
 
     with pytest.raises(ValueError, match="archive_dir"):
         await load_archive("betfair_tar", conn=_NoopConn())
+
+
+# ---------------------------------------------------------------------------
+# main_from_env — CLI entrypoint wires both config keys through
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_from_env_wires_settings_to_load_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`main_from_env` must read both historical_archive_dir and
+    historical_load_batch_size from Settings and pass them through."""
+    _write_synthetic_tar(tmp_path / "fixture.tar", n_ticks=3)
+
+    # Inject a Settings that doesn't require a real Postgres / .env.
+    class _FakeSettings:
+        historical_archive_dir = str(tmp_path)
+        historical_load_batch_size = 1234
+        postgres_dsn = "postgresql://unused/unused"
+
+    # Fake Database — never actually connects.
+    class _FakeConn:
+        async def fetch(self, _sql: str, *_args: Any) -> list[object]:
+            return []  # no rows => inserted == 0 is fine for this test
+
+    class _FakeAcquire:
+        async def __aenter__(self) -> _FakeConn:
+            return _FakeConn()
+
+        async def __aexit__(self, *_exc: Any) -> None:
+            return None
+
+    from typing import ClassVar
+
+    class _FakeDatabase:
+        instances: ClassVar[list[_FakeDatabase]] = []
+
+        def __init__(self, dsn: str) -> None:
+            self.dsn = dsn
+            self.connected = False
+            self.closed = False
+            _FakeDatabase.instances.append(self)
+
+        async def connect(self) -> None:
+            self.connected = True
+
+        async def close(self) -> None:
+            self.closed = True
+
+        def acquire(self) -> _FakeAcquire:
+            return _FakeAcquire()
+
+    captured: dict[str, Any] = {}
+
+    async def _fake_load_archive(source: str, **kwargs: Any) -> int:
+        captured["source"] = source
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("algobet_common.config.Settings", _FakeSettings)
+    monkeypatch.setattr("algobet_common.db.Database", _FakeDatabase)
+    monkeypatch.setattr("ingestion.historical_loader.load_archive", _fake_load_archive)
+
+    result = await main_from_env()
+
+    assert result == 0
+    assert captured["source"] == "betfair_tar"
+    assert captured["archive_dir"] == str(tmp_path)
+    assert captured["batch_size"] == 1234
+    assert captured["venue"] == "betfair"
+    # Database lifecycle honoured.
+    assert _FakeDatabase.instances[-1].connected is True
+    assert _FakeDatabase.instances[-1].closed is True
+
+
+@pytest.mark.asyncio
+async def test_main_from_env_errors_when_archive_dir_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeSettings:
+        historical_archive_dir = None
+        historical_load_batch_size = 5000
+        postgres_dsn = "postgresql://unused/unused"
+
+    monkeypatch.setattr("algobet_common.config.Settings", _FakeSettings)
+
+    with pytest.raises(ValueError, match="historical_archive_dir"):
+        await main_from_env()
 
 
 # ---------------------------------------------------------------------------
