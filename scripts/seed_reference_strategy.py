@@ -17,14 +17,19 @@ order submission.
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 from pathlib import Path
 
 from algobet_common.config import Settings
 from algobet_common.db import Database
+from strategy_registry.errors import StrategyLoadError
 from strategy_registry.wiki_loader import load_strategy_from_wiki
 
+logger = logging.getLogger("seed_reference_strategy")
 
-async def main() -> None:
+
+async def main() -> int:
     settings = Settings(service_name="seed-reference-strategy")
     db = Database(settings.postgres_dsn)
     await db.connect()
@@ -32,13 +37,22 @@ async def main() -> None:
         wiki_path = (
             Path(__file__).parent.parent / "wiki" / "30-Strategies" / "mean-reversion-ref.md"
         )
-        strategy = await load_strategy_from_wiki(wiki_path, db)
-        print(
-            f"seeded strategy slug={strategy.slug} id={strategy.id} status={strategy.status.value}"
+        try:
+            strategy = await load_strategy_from_wiki(wiki_path, db)
+        except StrategyLoadError:
+            logger.exception("failed to load reference strategy from %s", wiki_path)
+            return 1
+        logger.info(
+            "seeded strategy slug=%s id=%s status=%s",
+            strategy.slug,
+            strategy.id,
+            strategy.status.value,
         )
+        return 0
     finally:
         await db.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    sys.exit(asyncio.run(main()))
