@@ -144,12 +144,13 @@ def build_delta_pnl_settlement() -> DeltaSettlementFn:
         closing_size = min(new_size, prior_size)
 
         # Delta P&L convention (Phase 6b plan §"P&L settlement for 6b"):
-        #   BACK-then-LAY:  realised = back_entry - lay_price
-        #   LAY-then-BACK:  realised = lay_entry  - back_price
-        # Both reduce to ``prior_entry - new_price`` because the closing fill
-        # is always the opposite side of the open position.  Profit accrues
-        # when the close price is "better" than the open price in the bettor's
-        # favour (backed high then layed low; or layed high then backed low).
+        #   BACK-then-LAY:  realised = closing_size * (back_entry - lay_price)
+        #                   (profit when we BACK'd cheap and LAY out higher)
+        #   LAY-then-BACK:  realised = closing_size * (lay_entry  - back_price)
+        #                   (profit when we LAY'd high and BACK out lower — the
+        #                   spec's "symmetric" case with sign reflected)
+        # Both expressions collapse to ``prior_entry - new_price`` because the
+        # closing fill is always the opposite side of the open position.
         realised = closing_size * (prior_entry - new_price)
 
         residual_prior = prior_size - closing_size

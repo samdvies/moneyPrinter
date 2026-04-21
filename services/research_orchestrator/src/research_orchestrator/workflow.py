@@ -62,10 +62,6 @@ async def run_backtest(
     (``runner.run_once``) don't need to import ``backtest_engine`` directly.
     All DB bookkeeping (``strategy_runs`` start_run / end_run) is handled
     inside the harness when ``db`` + ``strategy_id`` are supplied.
-
-    # TODO(6b): when Phase 6b lands, this delegate will forward a
-    # research-generated strategy and an ArchiveSource so the harness
-    # evaluates real edge quality rather than the trivial synthetic source.
     """
     logger.info(
         "run_backtest: dispatching harness for strategy %s over [%s, %s]",
