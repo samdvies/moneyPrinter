@@ -117,7 +117,7 @@ Config additions in `algobet_common/config.py`:
 - Add `"services/backtest_engine"` to `[tool.uv.workspace].members`
 - Add `"services/backtest_engine/tests"` to `[tool.pytest.ini_options].testpaths`
 
-**Service `pyproject.toml`:** mirror simulator's — depend on `algobet-common` and `simulator` (for `match_order` + `Book`).
+**Service `pyproject.toml`:** mirror simulator's — depend on `algobet-common`, `simulator` (for `match_order` + `Book`), and `strategy-registry` (for `crud.start_run` / `crud.end_run` called from the harness control flow).
 
 **Factoring `match_order` for determinism:** this is the one source-file edit outside the new service. Add a `now_fn: Callable[[], datetime] = lambda: datetime.now(UTC)` keyword-only parameter to `match_order` in `services/simulator/src/simulator/fills.py`. Update `services/simulator/src/simulator/engine.py` caller at line 136 to keep existing behaviour (default). Add a simulator test pinning that `now_fn` is honoured.
 

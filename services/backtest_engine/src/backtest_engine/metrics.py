@@ -7,6 +7,13 @@ Return types are JSON-serialisable via ``json.dumps(default=str)`` so the
 resulting ``BacktestResult`` dict can be stored directly in the
 ``strategy_runs.metrics`` jsonb column (see
 ``strategy_registry/crud.py::end_run``).
+
+``_trivial_settlement`` is module-private: 6a uses it as the default
+settlement (every fill P&L = 0) so the harness control flow can be
+exercised without pretending to price risk. 6b swaps settlement by
+passing a caller-supplied ``settlement_fn`` to ``total_pnl_gbp`` and
+``win_rate`` — the private default never needs to be imported by name
+outside of tests that specifically pin its behaviour.
 """
 
 from __future__ import annotations
@@ -16,6 +23,14 @@ from collections.abc import Callable, Sequence
 from decimal import Decimal
 
 from algobet_common.schemas import ExecutionResult
+
+__all__ = [
+    "SettlementFn",
+    "max_drawdown_gbp",
+    "sharpe",
+    "total_pnl_gbp",
+    "win_rate",
+]
 
 # Annualisation factor for daily-bucketed Sharpe — matches the standard
 # 252 trading-day convention used across the quant literature.
@@ -28,19 +43,20 @@ _ANNUAL_FACTOR = 252
 SettlementFn = Callable[[ExecutionResult], Decimal]
 
 
-def trivial_settlement(_result: ExecutionResult) -> Decimal:
-    """Default settlement: assume every fill settles at its own VWAP.
+def _trivial_settlement(_result: ExecutionResult) -> Decimal:
+    """Module-private default settlement: every fill settles at its own VWAP.
 
-    P&L is therefore zero for every matched order. This lets the harness
-    exercise the full control flow (book updates, fills, metrics) without
-    pretending to price risk — that's 6b's job.
+    P&L is therefore zero for every matched order. Kept as the default
+    argument for ``total_pnl_gbp`` / ``win_rate`` so 6a can exercise the
+    full control flow; 6b replaces it by passing a real ``settlement_fn``
+    rather than editing this function's body.
     """
     return Decimal("0")
 
 
 def total_pnl_gbp(
     fills: Sequence[ExecutionResult],
-    settlement_fn: SettlementFn = trivial_settlement,
+    settlement_fn: SettlementFn = _trivial_settlement,
 ) -> Decimal:
     """Sum ``settlement_fn(fill)`` across every fill with non-zero stake.
 
@@ -92,15 +108,18 @@ def max_drawdown_gbp(equity_curve: Sequence[Decimal]) -> Decimal:
     return worst
 
 
-def win_rate(fills: Sequence[ExecutionResult]) -> float:
-    """Fraction of fills with settled P&L > 0 under the trivial settlement.
+def win_rate(
+    fills: Sequence[ExecutionResult],
+    settlement_fn: SettlementFn = _trivial_settlement,
+) -> float:
+    """Fraction of fills with settled P&L > 0 under ``settlement_fn``.
 
-    With the 6a placeholder settlement returning 0 for every fill, this is
-    always 0.0 whenever any fill exists. 6b will replace this with a real
-    calculation once settlement returns non-zero values.
+    The default trivial settlement returns 0 for every fill, so ``win_rate``
+    is 0.0 whenever any fill exists. 6b swaps settlement by passing a
+    caller argument — no edits to this function are required.
     """
     matched = [f for f in fills if f.filled_stake > Decimal("0")]
     if not matched:
         return 0.0
-    wins = sum(1 for f in matched if trivial_settlement(f) > Decimal("0"))
+    wins = sum(1 for f in matched if settlement_fn(f) > Decimal("0"))
     return wins / len(matched)

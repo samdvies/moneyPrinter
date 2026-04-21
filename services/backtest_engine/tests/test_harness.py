@@ -2,19 +2,22 @@
 
 The determinism pin is the headline done-when: two consecutive
 ``run_backtest`` calls against the same source must produce structurally
-equal ``BacktestResult`` dicts. Without the ``now_fn`` factoring on
-``match_order`` this test would fail on the ``ExecutionResult.timestamp``
-captured in metrics (timestamps don't surface in BacktestResult directly,
-but the no-wall-clock guarantee still needs proving).
+equal ``BacktestResult`` dicts. With the ``clock`` kwarg factored on
+``run_backtest`` and the ``now_fn`` factoring on ``match_order``, the
+pin asserts bit-identical equality on every key — no wall-clock scrub.
+
+Fixture import strategy:
+    See ``tests/conftest.py`` — the service's ``tests/`` directory is
+    prepended to ``sys.path`` so ``fixtures`` is importable as a
+    top-level package. This avoids a relative import against the shared
+    ``tests`` package name, which collides across services under
+    ``--import-mode=importlib``.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import cast
 
 from algobet_common.schemas import MarketData, Venue
@@ -22,26 +25,16 @@ from backtest_engine.harness import run_backtest
 from backtest_engine.sources.synthetic import SyntheticSource
 from backtest_engine.strategy_protocol import StrategyModule
 
+# The ``fixtures`` top-level name is injected by ``tests/conftest.py``
+# at collection time via a sys.path prepend. See mypy.ini for the
+# corresponding ``[mypy-fixtures.*]`` override that keeps project-wide
+# mypy quiet about the conftest-only resolution path.
+from fixtures import always_back_below_two as _fixture_module
 
-def _load_fixture_strategy() -> StrategyModule:
-    """Load the ``always_back_below_two`` fixture as a module object.
-
-    Uses importlib directly rather than ``import``-statement discovery so
-    mypy and ruff do not have to reason about the directory layout of a
-    test-only fixture. The harness StrategyModule Protocol is structural,
-    so a module object with ``on_tick`` satisfies it at runtime; we cast
-    the result here so mypy can keep its type narrowing.
-    """
-    fixture_path = Path(__file__).parent / "fixtures" / "always_back_below_two.py"
-    spec = importlib.util.spec_from_file_location("always_back_below_two", fixture_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["always_back_below_two"] = module
-    spec.loader.exec_module(module)
-    return cast(StrategyModule, module)
-
-
-always_back_below_two = _load_fixture_strategy()
+# The harness StrategyModule Protocol is structural: a module object with
+# an ``on_tick`` attribute satisfies it. Casting here keeps mypy's type
+# narrowing on ``run_backtest`` without changing runtime behaviour.
+always_back_below_two = cast(StrategyModule, _fixture_module)
 
 
 def _tick(offset_seconds: int, best_ask: str = "1.40") -> MarketData:
@@ -58,6 +51,13 @@ def _time_range() -> tuple[datetime, datetime]:
     start = datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)
     end = start + timedelta(seconds=120)
     return start, end
+
+
+def _fixed_clock() -> datetime:
+    """Return a fixed UTC timestamp so ``started_at`` / ``ended_at`` are
+    deterministic across replays. Any constant works — the pin just
+    requires two runs to agree."""
+    return datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)
 
 
 async def test_harness_runs_trivial_strategy_and_records_trades() -> None:
@@ -91,16 +91,6 @@ async def test_harness_skips_when_ask_above_threshold() -> None:
     assert result["n_ticks_consumed"] == 10
 
 
-def _scrub_wallclock(result: dict[str, object]) -> dict[str, object]:
-    """Strip wall-clock started_at/ended_at before comparing determinism.
-
-    These come from ``datetime.now(UTC)`` inside the harness and are
-    definitionally non-deterministic; the contract guarantees every other
-    key is bit-identical across replays.
-    """
-    return {k: v for k, v in result.items() if k not in {"started_at", "ended_at"}}
-
-
 async def test_harness_determinism_two_runs_same_source() -> None:
     ticks = [_tick(i, best_ask="1.40") for i in range(100)]
     source = SyntheticSource(ticks)
@@ -110,15 +100,19 @@ async def test_harness_determinism_two_runs_same_source() -> None:
         params={"stake": Decimal("10")},
         source=source,
         time_range=_time_range(),
+        clock=_fixed_clock,
     )
     second = await run_backtest(
         strategy=always_back_below_two,
         params={"stake": Decimal("10")},
         source=source,
         time_range=_time_range(),
+        clock=_fixed_clock,
     )
 
-    assert _scrub_wallclock(dict(first)) == _scrub_wallclock(dict(second))
+    # No key filtering — structural equality on every key. This is the
+    # whole point of the ``clock`` kwarg on ``run_backtest``.
+    assert first == second
     # Sanity: the run actually did something.
     assert first["n_trades"] > 0
 
