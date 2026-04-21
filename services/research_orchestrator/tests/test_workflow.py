@@ -18,7 +18,6 @@ from research_orchestrator.workflow import (
     hypothesize,
     promote,
     run_backtest,
-    run_stub_backtest,
 )
 from strategy_registry.models import Status, Strategy
 
@@ -35,18 +34,6 @@ async def test_hypothesize_returns_stub() -> None:
     assert "name" in result
     assert "description" in result
     assert "venue" in result
-
-
-# ---------------------------------------------------------------------------
-# run_stub_backtest (offline-only path)
-# ---------------------------------------------------------------------------
-
-
-async def test_run_stub_backtest_returns_stub() -> None:
-    result = await run_stub_backtest({"name": "x"})
-    assert result["status"] == "stub"
-    assert "sharpe" in result
-    assert result["n_trades"] == 0
 
 
 # ---------------------------------------------------------------------------

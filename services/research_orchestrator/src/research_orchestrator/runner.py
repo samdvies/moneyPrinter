@@ -94,6 +94,12 @@ async def run_once(db: Database, bus: BusClient, settings: Settings) -> None:
         db,
     )
 
+    # TODO(6b): replace this trivial gate with a real edge check. The current
+    # synthetic source (best ask 1.40) fires the trivial strategy (threshold
+    # ≤ 1.50) on every tick, so n_trades > 0 is almost guaranteed and the
+    # gate is a rubber-stamp. Phase 6b supplies an ArchiveSource + a
+    # research-generated strategy with a meaningful negative-path data set,
+    # making it possible for this branch to legitimately reject a hypothesis.
     if result["n_trades"] > 0:
         strategy = await promote(db, bus, strategy.id, Status.BACKTESTING)
         strategy = await promote(db, bus, strategy.id, Status.PAPER)

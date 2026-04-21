@@ -7,9 +7,6 @@ These functions implement the core research loop:
 - ``run_backtest`` — production path: a thin delegate onto
   ``backtest_engine.run_backtest`` so the orchestrator can keep calling
   ``workflow.run_backtest`` in its own namespace.
-- ``run_stub_backtest`` — offline-only path: returns a fixed zero-metrics
-  dict with ``status='stub'``. Tests that do not want to wire a real
-  harness call this; production code MUST call ``run_backtest``.
 - ``promote`` — advance a strategy through the lifecycle via the registry
   gate.
 """
@@ -65,6 +62,10 @@ async def run_backtest(
     (``runner.run_once``) don't need to import ``backtest_engine`` directly.
     All DB bookkeeping (``strategy_runs`` start_run / end_run) is handled
     inside the harness when ``db`` + ``strategy_id`` are supplied.
+
+    # TODO(6b): when Phase 6b lands, this delegate will forward a
+    # research-generated strategy and an ArchiveSource so the harness
+    # evaluates real edge quality rather than the trivial synthetic source.
     """
     logger.info(
         "run_backtest: dispatching harness for strategy %s over [%s, %s]",
@@ -80,19 +81,6 @@ async def run_backtest(
         db=db,
         strategy_id=strategy_id,
     )
-
-
-async def run_stub_backtest(hypothesis: dict[str, Any]) -> dict[str, Any]:
-    """Return a stub backtest result. Offline-only — production code MUST
-    call ``run_backtest`` (the harness-backed path).
-
-    Kept for tests that don't need to wire a TickSource + StrategyModule.
-    """
-    logger.info(
-        "run_stub_backtest: returning stub result for hypothesis %s",
-        hypothesis.get("name"),
-    )
-    return {"sharpe": 0.0, "total_pnl_gbp": 0.0, "n_trades": 0, "status": "stub"}
 
 
 async def promote(

@@ -5,6 +5,10 @@ Requires running Postgres and Redis. Skip gracefully if unavailable.
 
 from __future__ import annotations
 
+import json
+from decimal import Decimal
+from unittest.mock import patch
+
 import pytest
 import redis.asyncio as aioredis
 from algobet_common.bus import Topic
@@ -95,3 +99,71 @@ async def test_run_once_creates_paper_strategy(
         ), f"Expected >= 2 ResearchEvent entries in {Topic.RESEARCH_EVENTS}; got {event_count}"
     finally:
         await redis_client.aclose()
+
+
+async def test_run_once_zero_trades_leaves_hypothesis(
+    db: Database,
+    bus: object,
+) -> None:
+    """When the synthetic source produces no fills (best ask 1.60 > trivial
+    strategy threshold 1.50), run_once must leave the strategy at
+    ``hypothesis`` status and persist a strategy_runs row with n_trades == 0.
+
+    This test exercises the else-branch in ``runner.run_once``, proving that
+    the n_trades > 0 gate is reachable and not a rubber-stamp.
+
+    # TODO(6b): once Phase 6b lands with an ArchiveSource and a real edge
+    # check, this synthetic override can be replaced by a genuine no-edge
+    # scenario.
+    """
+    from algobet_common.bus import BusClient
+    from algobet_common.db import Database
+
+    assert isinstance(db, Database)
+    assert isinstance(bus, BusClient)
+
+    settings = Settings(service_name="research-orchestrator")
+
+    # Patch the synthetic best-ask constant to 1.60 so the trivial strategy
+    # (threshold <= 1.50) never fires, producing zero trades.
+    import research_orchestrator.runner as runner_module
+
+    with patch.object(runner_module, "_SYNTHETIC_BEST_ASK", Decimal("1.60")):
+        await run_once(db, bus, settings)
+
+    all_strategies = await crud.list_strategies(db)
+    stub_strategies = [s for s in all_strategies if s.slug.startswith("stub-hypothesis-")]
+    assert stub_strategies, "Expected at least one strategy to be created"
+
+    # The strategy created under the 1.60 ask should still be at hypothesis.
+    # We identify it by being the only one NOT at paper status (since the
+    # happy-path test may have also run and created paper strategies).
+    hypothesis_strategies = [s for s in stub_strategies if s.status == Status.HYPOTHESIS]
+    assert hypothesis_strategies, (
+        "Expected at least one strategy to remain at hypothesis status when "
+        "best ask 1.60 produces zero trades"
+    )
+
+    # Verify the harness persisted a strategy_runs row with n_trades == 0.
+    latest_hyp = max(hypothesis_strategies, key=lambda s: s.created_at)
+    async with db.acquire() as conn:
+        run_row = await conn.fetchrow(
+            """
+            SELECT mode, ended_at, metrics
+              FROM strategy_runs
+             WHERE strategy_id = $1
+             ORDER BY started_at DESC
+             LIMIT 1
+            """,
+            latest_hyp.id,
+        )
+    assert run_row is not None, f"Expected a strategy_runs row for strategy {latest_hyp.id}"
+    assert run_row["mode"] == "backtest"
+    assert run_row["ended_at"] is not None, "Harness did not seal the strategy_runs row"
+
+    metrics = run_row["metrics"]
+    if isinstance(metrics, str):
+        metrics = json.loads(metrics)
+    assert (
+        str(metrics.get("n_trades", "missing")) == "0"
+    ), f"Expected n_trades == 0 for zero-fill source; got {metrics.get('n_trades')}"
