@@ -152,10 +152,9 @@ def write_backtest_results(
       ``max_drawdown_gbp``, ``n_ticks_consumed`` (the fixed shape emitted
       by ``backtest_engine.harness``).
     - ``run_ended_at`` drives the frontmatter ``updated:`` field
-      (formatted ``YYYY-MM-DD``). Keeping this a separate argument from
-      ``run_metrics['ended_at']`` lets the orchestrator stamp the file
-      with its own wall-clock view rather than the harness clock, if
-      ever they diverge.
+      (formatted ``YYYY-MM-DD``). This is the authoritative wall-clock
+      moment at which the orchestrator finished the run and wrote back —
+      the caller passes ``datetime.now(UTC)``, not the harness clock.
 
     Preserves frontmatter key order, all body sections other than
     ``## Backtest Results``, and file-level line endings (LF).

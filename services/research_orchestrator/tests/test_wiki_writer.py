@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from research_orchestrator.wiki_writer import write_backtest_results
+from strategy_registry.wiki_loader import _parse_frontmatter, _split_frontmatter
 
 pytestmark = pytest.mark.unit
 
@@ -86,6 +87,19 @@ def test_write_backtest_results_roundtrip(tmp_path: Path) -> None:
     assert updated.startswith("---\n")
     # Frontmatter key order preserved: title is still first.
     assert updated.splitlines()[1].startswith("title:")
+
+    # Reload via the wiki_loader frontmatter-parse path.  This is the sync
+    # helper pair that ``load_strategy_from_wiki`` uses internally; if the
+    # writer produced a file the loader can no longer parse (e.g. broken
+    # frontmatter fences, invalid YAML), these calls would raise.
+    parsed = _parse_frontmatter(_split_frontmatter(updated))
+    assert parsed["strategy-id"] == "mean-reversion-ref"
+    assert parsed["module"] == "backtest_engine.strategies.mean_reversion"
+    assert parsed["updated"] == datetime(2026, 4, 21).date()
+    # Required-key set from the loader contract survives the rewrite.
+    for key in ("title", "strategy-id", "venue", "module", "parameters"):
+        assert key in parsed
+    assert isinstance(parsed["parameters"], dict)
 
 
 def test_write_backtest_results_idempotent(tmp_path: Path) -> None:

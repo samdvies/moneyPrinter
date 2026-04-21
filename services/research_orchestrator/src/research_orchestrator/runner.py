@@ -191,12 +191,15 @@ async def run_once(db: Database, bus: BusClient, settings: Settings) -> None:
         write_backtest_results(
             _REFERENCE_WIKI_PATH,
             result,
-            result["ended_at"],
+            datetime.now(UTC),
         )
-    except Exception:
-        # A wiki-write failure must not mask a successful backtest run or
-        # any advance decisions already committed above.  Log and move
-        # on — the run row in strategy_runs remains authoritative.
+    except OSError:
+        # A genuine I/O problem (file gone, permission error) must not
+        # mask a successful backtest run or any advance decisions already
+        # committed above.  Log and move on — the run row in
+        # strategy_runs remains authoritative.  Programming bugs in the
+        # writer (AttributeError, KeyError, ValueError) are NOT caught
+        # here; they should surface loudly.
         logger.exception(
             "run_once: wiki write-back failed for %s; registry row is authoritative",
             strategy.slug,
