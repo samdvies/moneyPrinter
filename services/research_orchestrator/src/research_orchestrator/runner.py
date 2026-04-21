@@ -34,6 +34,7 @@ from backtest_engine.strategy_protocol import StrategyModule
 from strategy_registry.models import Status
 from strategy_registry.wiki_loader import load_strategy_from_wiki
 
+from .wiki_writer import write_backtest_results
 from .workflow import promote, run_backtest
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,24 @@ async def run_once(db: Database, bus: BusClient, settings: Settings) -> None:
             result["n_trades"],
             result["total_pnl_gbp"],
             strategy.status,
+        )
+
+    # Mirror the run metrics back into the wiki file so the Obsidian
+    # vault stays in sync with the registry for human review.  Disk I/O
+    # lives here (orchestration), not in workflow.run_backtest (DB-only).
+    try:
+        write_backtest_results(
+            _REFERENCE_WIKI_PATH,
+            result,
+            result["ended_at"],
+        )
+    except Exception:
+        # A wiki-write failure must not mask a successful backtest run or
+        # any advance decisions already committed above.  Log and move
+        # on — the run row in strategy_runs remains authoritative.
+        logger.exception(
+            "run_once: wiki write-back failed for %s; registry row is authoritative",
+            strategy.slug,
         )
 
     logger.info(
