@@ -11,6 +11,11 @@ Populates the `market_data_archive` hypertable from two sources:
   `json` field back into `MarketData`. Lets a live ingestion session seed the
   archive.
 
+Note: the ``main_from_env`` / ``python -m ingestion.historical_loader`` CLI
+entrypoint drives ``betfair_tar`` only. ``redis_xrange`` is a library-only
+mode invoked programmatically from other services or tests; it deliberately
+has no dedicated env var, to keep the CLI surface tight.
+
 Design notes:
 
 * The live Betfair adapter takes a ``betfairlightweight`` object with attribute
@@ -38,7 +43,7 @@ import bz2
 import json
 import logging
 import tarfile
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -222,8 +227,19 @@ async def _insert_batch(
     return len(rows)
 
 
+async def _as_async(sync_iter: Iterable[MarketData]) -> AsyncIterator[MarketData]:
+    """Adapt a synchronous iterable of MarketData into an async iterator.
+
+    Lets :func:`_drain_in_batches` speak a single protocol (``AsyncIterable``)
+    regardless of whether the upstream source is sync (tar walking) or async
+    (Redis XRANGE).
+    """
+    for item in sync_iter:
+        yield item
+
+
 async def _drain_in_batches(
-    ticks: Iterable[MarketData] | AsyncIterator[MarketData],
+    ticks: AsyncIterable[MarketData],
     conn: _AsyncpgExecutor,
     venue: str,
     batch_size: int,
@@ -237,18 +253,10 @@ async def _drain_in_batches(
             total += await _insert_batch(conn, venue, batch)
             batch.clear()
 
-    if hasattr(ticks, "__aiter__"):
-        async_ticks: AsyncIterator[MarketData] = ticks  # type: ignore[assignment]
-        async for tick in async_ticks:
-            batch.append(tick)
-            if len(batch) >= batch_size:
-                await _flush()
-    else:
-        sync_ticks: Iterable[MarketData] = ticks
-        for tick in sync_ticks:
-            batch.append(tick)
-            if len(batch) >= batch_size:
-                await _flush()
+    async for tick in ticks:
+        batch.append(tick)
+        if len(batch) >= batch_size:
+            await _flush()
     await _flush()
     return total
 
@@ -291,7 +299,7 @@ async def load_archive(
             raise ValueError("betfair_tar mode requires archive_dir")
         directory = Path(archive_dir)
         return await _drain_in_batches(
-            iter_archive_from_directory(directory),
+            _as_async(iter_archive_from_directory(directory)),
             conn,
             venue,
             batch_size,
@@ -317,6 +325,7 @@ async def main_from_env() -> int:
     :class:`algobet_common.config.Settings` and drives the ``betfair_tar``
     loader. Raises ``ValueError`` if ``historical_archive_dir`` is unset.
     """
+    # Deferred: avoids pulling asyncpg + Settings into module import graph for library-only callers.
     from algobet_common.config import Settings
     from algobet_common.db import Database
 
