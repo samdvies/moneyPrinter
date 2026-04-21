@@ -80,7 +80,7 @@ Two modes, one entrypoint `load_archive(source: Literal["betfair_tar", "redis_xr
 - **`betfair_tar`** mode: accept a directory path and a venue label. For each `.tar` file, yield decoded `MarketData` objects. Betfair historical TAR format: each file is bz2 with one JSON line per tick (Betfair Exchange Stream API format). Decode via the existing adapter code — **reuse `ingestion/betfair_adapter.py` decode helpers**; if they're too tightly coupled to the live stream, extract the decode step into a small helper shared by both paths. Insert in 5000-row batches via `COPY` or `executemany`.
 - **`redis_xrange`** mode: `XRANGE market.data - +` against the configured Redis, parse each entry's `json` field as `MarketData`, batch-insert. This lets us capture a live ingestion session into the archive.
 
-Idempotency: `ON CONFLICT (venue, market_id, timestamp) DO NOTHING`.
+Idempotency: `ON CONFLICT (venue, market_id, observed_at) DO NOTHING`.
 
 Config additions in `algobet_common/config.py`:
 - `historical_archive_dir: str | None`
