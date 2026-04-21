@@ -118,29 +118,47 @@ async def run_backtest(
     per_tick_pnl: list[Decimal] = []
     equity_curve: list[Decimal] = []
     running_pnl = Decimal("0")
-    n_ticks = 0
+    # ``ticks_seen`` is updated *before* ``strategy.on_tick`` so that a mid-tick
+    # raise still reports how many ticks were consumed up to (but not including)
+    # the failing tick. The ``finally`` block reads this counter when writing
+    # the failure metrics blob.
+    ticks_seen = 0
 
-    async for tick in source.iter_ticks(time_range):
-        n_ticks += 1
-        book.update(tick)
-        tick_timestamp = tick.timestamp
-        signal = strategy.on_tick(tick, params, tick_timestamp)
+    try:
+        async for tick in source.iter_ticks(time_range):
+            book.update(tick)
+            tick_timestamp = tick.timestamp
+            signal = strategy.on_tick(tick, params, tick_timestamp)
 
-        tick_pnl = Decimal("0")
-        if signal is not None:
-            # Default arg binds tick.timestamp at definition time
-            # (late-binding guard) so each closure captures its own tick.
-            def _tick_clock(ts: datetime = tick_timestamp) -> datetime:
-                return ts
+            tick_pnl = Decimal("0")
+            if signal is not None:
+                # Default arg binds tick.timestamp at definition time
+                # (late-binding guard) so each closure captures its own tick.
+                def _tick_clock(ts: datetime = tick_timestamp) -> datetime:
+                    return ts
 
-            result = match_order(signal, tick, now_fn=_tick_clock)
-            fills.append(result)
-            if result.filled_stake > Decimal("0"):
-                tick_pnl = _trivial_settlement(result)
+                result = match_order(signal, tick, now_fn=_tick_clock)
+                fills.append(result)
+                if result.filled_stake > Decimal("0"):
+                    tick_pnl = _trivial_settlement(result)
 
-        running_pnl += tick_pnl
-        per_tick_pnl.append(tick_pnl)
-        equity_curve.append(running_pnl)
+            running_pnl += tick_pnl
+            per_tick_pnl.append(tick_pnl)
+            equity_curve.append(running_pnl)
+            ticks_seen += 1
+    except BaseException as exc:
+        # Seal the run row with a sentinel failure blob so ``ended_at`` is
+        # populated even when the replay raised. We only persist when the
+        # caller opted into DB mode (both ``db`` and ``run_id`` present);
+        # the exception is re-raised so the caller observes the failure.
+        if db is not None and run_id is not None:
+            failure_metrics: dict[str, Any] = {
+                "status": "failed",
+                "error": repr(exc),
+                "n_ticks_consumed": ticks_seen,
+            }
+            await crud.end_run(db, run_id, metrics=failure_metrics)
+        raise
 
     ended_at = clock()
 
@@ -150,7 +168,7 @@ async def run_backtest(
         "max_drawdown_gbp": max_drawdown_gbp(equity_curve),
         "n_trades": sum(1 for f in fills if f.filled_stake > Decimal("0")),
         "win_rate": win_rate(fills),
-        "n_ticks_consumed": n_ticks,
+        "n_ticks_consumed": ticks_seen,
         "started_at": started_at,
         "ended_at": ended_at,
     }

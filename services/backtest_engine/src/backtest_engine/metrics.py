@@ -71,12 +71,18 @@ def total_pnl_gbp(
 
 
 def sharpe(per_tick_pnl_series: Sequence[Decimal]) -> float:
-    """Annualised Sharpe ratio from a per-tick P&L series.
+    """Annualised Sharpe ratio over a tick-level P&L series.
 
-    Tick-level series are summed per UTC day if the span exceeds a day's worth
-    of samples; otherwise we treat each tick as its own bucket. Returns 0.0
-    when the series has fewer than two samples or when volatility is zero
-    (a NaN would not round-trip through jsonb).
+    Each element of ``per_tick_pnl_series`` is treated as one sample. The
+    annualisation factor (252) is applied regardless of sample cadence —
+    callers supplying sparse per-day P&L get a standard daily Sharpe;
+    callers supplying dense tick-level P&L get a number whose annualisation
+    is only meaningful if the total span is a standard trading session
+    length. Proper per-UTC-day bucketing is deferred to 6b when the
+    reference strategy produces timestamped P&L.
+
+    Returns 0.0 on degenerate inputs (empty, single, zero stddev) —
+    JSONB cannot round-trip NaN.
     """
     if len(per_tick_pnl_series) < 2:
         return 0.0

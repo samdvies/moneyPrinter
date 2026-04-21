@@ -16,11 +16,13 @@ Fixture import strategy:
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 
-from algobet_common.schemas import MarketData, Venue
+import pytest
+from algobet_common.schemas import MarketData, OrderSignal, Venue
 from backtest_engine.harness import run_backtest
 from backtest_engine.sources.synthetic import SyntheticSource
 from backtest_engine.strategy_protocol import StrategyModule
@@ -30,6 +32,7 @@ from backtest_engine.strategy_protocol import StrategyModule
 # corresponding ``[mypy-fixtures.*]`` override that keeps project-wide
 # mypy quiet about the conftest-only resolution path.
 from fixtures import always_back_below_two as _fixture_module
+from strategy_registry import crud as registry_crud
 
 # The harness StrategyModule Protocol is structural: a module object with
 # an ``on_tick`` attribute satisfies it. Casting here keeps mypy's type
@@ -115,6 +118,97 @@ async def test_harness_determinism_two_runs_same_source() -> None:
     assert first == second
     # Sanity: the run actually did something.
     assert first["n_trades"] > 0
+
+
+class _RaiseOnThirdTick:
+    """Strategy whose ``on_tick`` raises on the Nth invocation.
+
+    Used to verify the harness still seals the ``strategy_runs`` row when
+    the replay loop raises — the ``finally`` branch must call ``end_run``
+    with a failure-sentinel metrics blob and re-raise so the caller sees
+    the original exception.
+    """
+
+    class BoomError(RuntimeError):
+        pass
+
+    def __init__(self, raise_on_call: int) -> None:
+        self._raise_on_call = raise_on_call
+        self._calls = 0
+
+    def on_tick(
+        self,
+        snapshot: MarketData,
+        params: dict[str, Any],
+        now: datetime,
+    ) -> OrderSignal | None:
+        self._calls += 1
+        if self._calls == self._raise_on_call:
+            raise self.BoomError("boom")
+        return None
+
+
+async def test_harness_seals_run_with_failure_metrics_when_strategy_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ``on_tick`` raises mid-replay, ``crud.end_run`` is still called.
+
+    We stub out both ``crud.start_run`` (to avoid DB) and ``crud.end_run``
+    (to capture the metrics kwarg). ``db`` is passed as a non-None sentinel
+    so the DB-mode branch activates; the stubs never touch the sentinel.
+    """
+    captured: dict[str, Any] = {}
+
+    class _FakeRun:
+        id = uuid.uuid4()
+
+    async def _fake_start_run(
+        _db: Any,
+        _strategy_id: Any,
+        _mode: Any,
+    ) -> _FakeRun:
+        return _FakeRun()
+
+    async def _fake_end_run(
+        _db: Any,
+        run_id: uuid.UUID,
+        *,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
+        captured["run_id"] = run_id
+        captured["metrics"] = metrics
+
+    monkeypatch.setattr(registry_crud, "start_run", _fake_start_run)
+    monkeypatch.setattr(registry_crud, "end_run", _fake_end_run)
+
+    # Sentinel db — the stubs never inspect it, but the harness checks
+    # ``db is not None`` to activate the registry branch.
+    sentinel_db = cast(Any, object())
+    strategy_id = uuid.uuid4()
+
+    strategy = cast(StrategyModule, _RaiseOnThirdTick(raise_on_call=3))
+    ticks = [_tick(i, best_ask="1.40") for i in range(10)]
+    source = SyntheticSource(ticks)
+
+    with pytest.raises(_RaiseOnThirdTick.BoomError):
+        await run_backtest(
+            strategy=strategy,
+            params={},
+            source=source,
+            time_range=_time_range(),
+            db=sentinel_db,
+            strategy_id=strategy_id,
+            clock=_fixed_clock,
+        )
+
+    assert "metrics" in captured, "crud.end_run was not called"
+    metrics = captured["metrics"]
+    assert metrics is not None
+    assert metrics["status"] == "failed"
+    # Ticks 1 and 2 completed fully; the raise on tick 3 happens before
+    # ``ticks_seen`` increments, so the sentinel records two consumed ticks.
+    assert metrics["n_ticks_consumed"] == 2
+    assert "BoomError" in metrics["error"]
 
 
 async def test_harness_result_shape_matches_contract() -> None:
