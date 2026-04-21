@@ -1,0 +1,205 @@
+"""Tests for ``strategy_registry.wiki_loader.load_strategy_from_wiki``.
+
+Unit tests (no DB) cover every pre-UPSERT failure mode: mismatched filename,
+missing key, missing module, module-without-on_tick. The integration test
+exercises the UPSERT semantics end-to-end against the local Postgres.
+"""
+
+from __future__ import annotations
+
+import shutil
+import uuid
+from collections.abc import AsyncGenerator
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock
+
+import pytest
+from algobet_common.db import Database
+from strategy_registry.errors import StrategyLoadError
+from strategy_registry.models import Status, Strategy
+from strategy_registry.wiki_loader import load_strategy_from_wiki
+
+_FIXTURES = Path(__file__).parent / "fixtures" / "wiki"
+
+
+def _fake_db_returning(strategy: Strategy) -> Any:
+    """Build a minimal object that satisfies ``load_strategy_from_wiki``'s Database dependency.
+
+    The loader only calls ``upsert_strategy(db, ...)``. Tests that don't care
+    about the UPSERT (i.e. the failure-path tests) use this stub so they don't
+    touch Postgres; tests that DO care about the UPSERT use the real Database
+    and are marked ``@pytest.mark.integration``.
+    """
+
+    class _Stub:
+        pass
+
+    return _Stub()
+
+
+# ---------------------------------------------------------------------------
+# Happy path (unit: patches upsert_strategy, no DB required)
+# ---------------------------------------------------------------------------
+
+
+async def test_happy_path_parses_and_upserts(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_upsert(
+        db: Any,
+        *,
+        slug: str,
+        parameters: dict[str, Any],
+        wiki_path: str,
+    ) -> Strategy:
+        captured["slug"] = slug
+        captured["parameters"] = parameters
+        captured["wiki_path"] = wiki_path
+        from datetime import UTC, datetime
+
+        return Strategy(
+            id=uuid.uuid4(),
+            slug=slug,
+            status=Status.HYPOTHESIS,
+            parameters=parameters,
+            wiki_path=wiki_path,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(
+        "strategy_registry.wiki_loader.upsert_strategy",
+        fake_upsert,
+    )
+
+    result = await load_strategy_from_wiki(
+        _FIXTURES / "happy-trivial.md",
+        _fake_db_returning,  # type: ignore[arg-type]
+    )
+
+    assert result.slug == "happy-trivial"
+    assert result.status == Status.HYPOTHESIS
+    assert captured["slug"] == "happy-trivial"
+    assert captured["parameters"] == {"stake_gbp": "10", "venue": "betfair"}
+    assert captured["wiki_path"].endswith("happy-trivial.md")
+
+
+# ---------------------------------------------------------------------------
+# Failure: filename stem != frontmatter strategy-id
+# ---------------------------------------------------------------------------
+
+
+async def test_filename_strategy_id_mismatch_raises() -> None:
+    stub = AsyncMock()
+    with pytest.raises(StrategyLoadError, match="does not match frontmatter"):
+        await load_strategy_from_wiki(_FIXTURES / "mismatched-id.md", stub)
+    stub.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Failure: missing required frontmatter key
+# ---------------------------------------------------------------------------
+
+
+async def test_missing_required_key_raises() -> None:
+    with pytest.raises(StrategyLoadError, match="missing required keys"):
+        await load_strategy_from_wiki(
+            _FIXTURES / "missing-key.md",
+            AsyncMock(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Failure: module dotted path does not resolve
+# ---------------------------------------------------------------------------
+
+
+async def test_missing_module_raises_module_not_found() -> None:
+    # The plan explicitly says ModuleNotFoundError propagates unwrapped.
+    with pytest.raises(ModuleNotFoundError):
+        await load_strategy_from_wiki(
+            _FIXTURES / "missing-module.md",
+            AsyncMock(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Failure: module imports but has no on_tick attr (stdlib ``pathlib``)
+# ---------------------------------------------------------------------------
+
+
+async def test_module_without_on_tick_raises_strategy_load_error() -> None:
+    with pytest.raises(StrategyLoadError, match="on_tick"):
+        await load_strategy_from_wiki(
+            _FIXTURES / "missing-on-tick.md",
+            AsyncMock(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Failure: wiki file with no frontmatter fence at all
+# ---------------------------------------------------------------------------
+
+
+async def test_no_frontmatter_fence_raises(tmp_path: Path) -> None:
+    bad = tmp_path / "no-fence.md"
+    bad.write_text("Just some markdown, no frontmatter.\n", encoding="utf-8")
+    with pytest.raises(StrategyLoadError, match="frontmatter fence"):
+        await load_strategy_from_wiki(bad, AsyncMock())
+
+
+async def test_unclosed_frontmatter_raises(tmp_path: Path) -> None:
+    bad = tmp_path / "unclosed.md"
+    bad.write_text("---\ntitle: x\nstrategy-id: unclosed\n", encoding="utf-8")
+    with pytest.raises(StrategyLoadError, match="closing '---'"):
+        await load_strategy_from_wiki(bad, AsyncMock())
+
+
+# ---------------------------------------------------------------------------
+# Integration: UPSERT round-trip — requires Postgres
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db(postgres_dsn: str, require_postgres: None) -> AsyncGenerator[Database, None]:
+    database = Database(postgres_dsn)
+    await database.connect()
+    yield database
+    await database.close()
+
+
+@pytest.mark.integration
+async def test_upsert_preserves_id_and_status_on_reload(db: Database, tmp_path: Path) -> None:
+    """Two consecutive loads of the same slug keep the UUID + status, update params."""
+    # Copy the fixture into tmp_path with a unique slug so parallel runs don't collide.
+    slug = f"upsert-rt-{uuid.uuid4().hex[:8]}"
+    dest = tmp_path / f"{slug}.md"
+    src = _FIXTURES / "upsert-roundtrip.md"
+    shutil.copyfile(src, dest)
+
+    # Rewrite the strategy-id line inside the copy to match the fresh slug.
+    original = dest.read_text(encoding="utf-8")
+    rewritten = original.replace("strategy-id: upsert-roundtrip", f"strategy-id: {slug}")
+    dest.write_text(rewritten, encoding="utf-8")
+
+    first = await load_strategy_from_wiki(dest, db)
+    assert first.slug == slug
+    assert first.status == Status.HYPOTHESIS
+    assert first.parameters == {"stake_gbp": "10", "venue": "betfair"}
+
+    # Simulate the operator advancing the strategy out of 'hypothesis' between
+    # loads; the loader must not revert it.
+    from strategy_registry.crud import transition
+
+    await transition(db, first.id, Status.BACKTESTING)
+
+    # Mutate parameters on disk, reload — same UUID, new parameters, status preserved.
+    mutated = dest.read_text(encoding="utf-8").replace('stake_gbp: "10"', 'stake_gbp: "25"')
+    dest.write_text(mutated, encoding="utf-8")
+
+    second = await load_strategy_from_wiki(dest, db)
+    assert second.id == first.id, "UPSERT must reuse the existing row"
+    assert second.status == Status.BACKTESTING, "loader must not clobber status"
+    assert second.parameters["stake_gbp"] == "25"
+    assert second.wiki_path == str(dest)

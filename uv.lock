@@ -1077,10 +1077,14 @@ version = "0.0.1"
 source = { editable = "services/strategy_registry" }
 dependencies = [
     { name = "algobet-common" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "algobet-common", editable = "services/common" }]
+requires-dist = [
+    { name = "algobet-common", editable = "services/common" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
 
 [[package]]
 name = "typer"
