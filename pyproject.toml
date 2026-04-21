@@ -39,3 +39,9 @@ markers = [
     "unit: tests that run offline without infrastructure",
     "slow: tests that intentionally sleep (TTL expiry, rate-limit windows)",
 ]
+
+[tool.ruff]
+extend-exclude = ["**/tests/fixtures/validator_allowed", "**/tests/fixtures/validator_rejected", "**/tests/fixtures/adversarial_modules"]
+
+[tool.mypy]
+exclude = ["tests/fixtures/validator_allowed/", "tests/fixtures/validator_rejected/", "tests/fixtures/adversarial_modules/"]

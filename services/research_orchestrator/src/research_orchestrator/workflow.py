@@ -38,7 +38,7 @@ _FORBIDDEN_TRANSITIONS: frozenset[Status] = frozenset({Status.LIVE, Status.AWAIT
 
 
 async def hypothesize() -> dict[str, Any]:
-    """Return a fixed stub hypothesis. Real generation (Claude API) is Phase 5."""
+    """Return a fixed stub hypothesis. Real generation (xAI Grok API) is Phase 6c."""
     hypothesis: dict[str, Any] = {
         "name": "stub-hypothesis",
         "description": "placeholder",
