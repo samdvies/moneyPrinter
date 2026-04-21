@@ -14,6 +14,9 @@ module's concern).
 This module is venue-agnostic: it touches only ``bids[0]`` / ``asks[0]``
 and always emits BACK/LAY constants. ``params["venue"]`` is informational
 routing metadata, not a behavioural switch.
+
+Caller must not share ``params`` across strategy instances; ``params['_window']``
+is per-instance mutable state.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ _FIXTURE_STRATEGY_ID = "00000000-0000-0000-0000-000000000000"
 def on_tick(
     snapshot: MarketData,
     params: dict[str, Any],
-    now: datetime,
+    _now: datetime,
 ) -> OrderSignal | None:
     """Emit a BACK/LAY signal when mid-price z-score exceeds threshold."""
     if not snapshot.bids or not snapshot.asks:
@@ -57,7 +60,9 @@ def on_tick(
     # Stakes/prices are rebuilt as Decimal at the signal boundary.
     mean_d = sum(window, Decimal(0)) / Decimal(len(window))
     stddev = statistics.pstdev(float(x) for x in window)
-    if stddev == 0.0:
+    # Guards against near-constant windows where fp noise would inflate z arbitrarily.
+    min_stddev = float(params.get("min_stddev", 1e-6))
+    if stddev < min_stddev:
         return None
 
     z = (float(mid) - float(mean_d)) / stddev
