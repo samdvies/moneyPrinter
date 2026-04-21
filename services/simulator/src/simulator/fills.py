@@ -62,11 +62,27 @@ def _walk_ladder(
     return filled_stake, filled_price, "partially_filled"
 
 
-def match_order(signal: OrderSignal, book: MarketData) -> ExecutionResult:
+def _default_now() -> datetime:
+    """Default timestamp source for ExecutionResult — wall clock in UTC."""
+    return datetime.now(UTC)
+
+
+def match_order(
+    signal: OrderSignal,
+    book: MarketData,
+    *,
+    now_fn: Callable[[], datetime] = _default_now,
+) -> ExecutionResult:
     """Match an order signal against a market data snapshot.
 
     Returns an ExecutionResult with status, filled_stake, and filled_price.
     The order_id is freshly generated (UUID4).
+
+    ``now_fn`` is the timestamp source for the ExecutionResult. Defaults to
+    ``datetime.now(UTC)`` for live/paper parity. The backtest harness passes
+    a clock that returns the replayed tick's own timestamp so two replays of
+    the same tick sequence produce byte-identical ExecutionResults (modulo
+    the UUID order_id, which metrics ignore).
     """
     if signal.side in _TAKER_SIDES:
         # BACK / YES: cross against asks (ascending), fill if ask.price <= signal.price
@@ -92,5 +108,5 @@ def match_order(signal: OrderSignal, book: MarketData) -> ExecutionResult:
         status=status,
         filled_stake=filled_stake,
         filled_price=filled_price,
-        timestamp=datetime.now(UTC),
+        timestamp=now_fn(),
     )

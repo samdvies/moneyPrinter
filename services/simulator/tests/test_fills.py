@@ -165,3 +165,17 @@ def test_result_has_required_fields() -> None:
     assert result.strategy_id == sig.strategy_id
     assert result.mode == "paper"
     assert result.timestamp is not None
+
+
+def test_now_fn_is_honoured() -> None:
+    """match_order stamps ExecutionResult.timestamp from ``now_fn`` when passed.
+
+    This is the determinism hook the backtest harness relies on — replaying
+    the same tick sequence must yield identical ExecutionResult.timestamp
+    values regardless of wall-clock time.
+    """
+    sig = _signal(side=OrderSide.BACK, stake="10.00", price="2.60")
+    book = _book(asks=[("2.50", "20.00")])
+    fixed = datetime(2020, 1, 1, 0, 0, 0, tzinfo=UTC)
+    result = match_order(sig, book, now_fn=lambda: fixed)
+    assert result.timestamp == fixed
