@@ -1,9 +1,14 @@
-"""Stub workflow functions for the research orchestrator.
+"""Workflow functions for the research orchestrator.
 
-These three functions implement the core research loop:
-- hypothesize: generate a trading hypothesis (stub returns a fixed dict)
-- run_backtest: evaluate a hypothesis (stub returns zeros)
-- promote: advance a strategy through the lifecycle via the registry gate
+These functions implement the core research loop:
+
+- ``hypothesize`` — generate a trading hypothesis (stub for now; real
+  Claude-API generation lands in a later phase).
+- ``run_backtest`` — production path: a thin delegate onto
+  ``backtest_engine.run_backtest`` so the orchestrator can keep calling
+  ``workflow.run_backtest`` in its own namespace.
+- ``promote`` — advance a strategy through the lifecycle via the registry
+  gate.
 """
 
 from __future__ import annotations
@@ -15,6 +20,9 @@ from typing import Any
 
 from algobet_common.bus import BusClient, Topic
 from algobet_common.db import Database
+from backtest_engine.harness import BacktestResult
+from backtest_engine.harness import run_backtest as _harness_run_backtest
+from backtest_engine.strategy_protocol import StrategyModule, TickSource
 from strategy_registry import crud
 from strategy_registry.models import Status, Strategy
 
@@ -40,10 +48,35 @@ async def hypothesize() -> dict[str, Any]:
     return hypothesis
 
 
-async def run_backtest(hypothesis: dict[str, Any]) -> dict[str, Any]:
-    """Run a stub backtest. Real backtesting logic is Phase 5."""
-    logger.info("run_backtest: running stub backtest for hypothesis %s", hypothesis.get("name"))
-    return {"sharpe": 0.0, "total_pnl_gbp": 0.0, "n_trades": 0, "status": "stub"}
+async def run_backtest(
+    strategy_id: uuid.UUID,
+    strategy: StrategyModule,
+    params: dict[str, Any],
+    source: TickSource,
+    time_range: tuple[datetime, datetime],
+    db: Database,
+) -> BacktestResult:
+    """Production backtest path — thin delegate onto the real harness.
+
+    The orchestrator keeps its own ``workflow.run_backtest`` name so callers
+    (``runner.run_once``) don't need to import ``backtest_engine`` directly.
+    All DB bookkeeping (``strategy_runs`` start_run / end_run) is handled
+    inside the harness when ``db`` + ``strategy_id`` are supplied.
+    """
+    logger.info(
+        "run_backtest: dispatching harness for strategy %s over [%s, %s]",
+        strategy_id,
+        time_range[0].isoformat(),
+        time_range[1].isoformat(),
+    )
+    return await _harness_run_backtest(
+        strategy=strategy,
+        params=params,
+        source=source,
+        time_range=time_range,
+        db=db,
+        strategy_id=strategy_id,
+    )
 
 
 async def promote(

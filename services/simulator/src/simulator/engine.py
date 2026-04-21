@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -29,8 +30,20 @@ logger = logging.getLogger(__name__)
 _SERVICE = "simulator"
 
 
-def _rest_result(signal: OrderSignal) -> ExecutionResult:
-    """Produce a resting (unfilled) result for a signal with no book snapshot."""
+def _default_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _rest_result(
+    signal: OrderSignal,
+    *,
+    now_fn: Callable[[], datetime] = _default_now,
+) -> ExecutionResult:
+    """Produce a resting (unfilled) result for a signal with no book snapshot.
+
+    ``now_fn`` mirrors ``match_order``'s timestamp-source parameter so callers
+    that need determinism (e.g. the backtest harness) can inject a replay clock.
+    """
     return ExecutionResult(
         order_id=str(uuid.uuid4()),
         strategy_id=signal.strategy_id,
@@ -38,7 +51,7 @@ def _rest_result(signal: OrderSignal) -> ExecutionResult:
         status="placed",
         filled_stake=Decimal("0"),
         filled_price=None,
-        timestamp=datetime.now(UTC),
+        timestamp=now_fn(),
     )
 
 

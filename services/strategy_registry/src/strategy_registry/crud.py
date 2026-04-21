@@ -79,6 +79,45 @@ async def create_strategy(
     return _row_to_strategy(row)
 
 
+async def upsert_strategy(
+    db: Database,
+    *,
+    slug: str,
+    parameters: dict[str, Any],
+    wiki_path: str,
+) -> Strategy:
+    """Insert a new strategy or update parameters/wiki_path on an existing slug.
+
+    On a fresh slug, inserts a row at ``status='hypothesis'`` — identical shape
+    to ``create_strategy``. On an existing slug, updates ``parameters``,
+    ``wiki_path`` and ``updated_at`` only. **Never** touches ``status``: the
+    lifecycle state machine (``transition``) owns that column and loading a
+    wiki file must not clobber a strategy that has already advanced.
+
+    Used by ``wiki_loader.load_strategy_from_wiki`` so re-reading a wiki file
+    is idempotent.
+    """
+    async with db.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO strategies (slug, status, parameters, wiki_path)
+            VALUES ($1, $2, $3::jsonb, $4)
+            ON CONFLICT (slug) DO UPDATE
+               SET parameters = EXCLUDED.parameters,
+                   wiki_path  = EXCLUDED.wiki_path,
+                   updated_at = now()
+            RETURNING *
+            """,
+            slug,
+            Status.HYPOTHESIS.value,
+            json.dumps(parameters),
+            wiki_path,
+        )
+    if row is None:
+        raise RuntimeError("UPSERT returned no row")
+    return _row_to_strategy(row)
+
+
 async def get_strategy(db: Database, strategy_id: uuid.UUID) -> Strategy:
     """Fetch a single strategy by ID."""
     async with db.acquire() as conn:

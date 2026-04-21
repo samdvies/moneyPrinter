@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     login_rate_limit_ip: tuple[int, int] = (5, 300)
     login_rate_limit_email: tuple[int, int] = (10, 900)
 
+    # Phase 6a historical loader — populates market_data_archive hypertable.
+    historical_archive_dir: str | None = Field(
+        default=None, description="Directory containing Betfair historical TAR files."
+    )
+    historical_load_batch_size: int = 5000
+
     @field_validator("dashboard_allowed_origins", mode="before")
     @classmethod
     def _parse_allowed_origins(cls, v: Any) -> Any:

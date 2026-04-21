@@ -1,16 +1,24 @@
 """Unit tests for research_orchestrator workflow state-machine wiring.
 
-These tests are offline (no DB, no Redis).  All external calls are mocked.
+These tests are offline (no DB, no Redis). All external calls are mocked.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from backtest_engine.strategy_protocol import StrategyModule, TickSource
 from research_orchestrator.errors import OrchestratorError
-from research_orchestrator.workflow import hypothesize, promote, run_backtest
+from research_orchestrator.workflow import (
+    hypothesize,
+    promote,
+    run_backtest,
+)
 from strategy_registry.models import Status, Strategy
 
 pytestmark = pytest.mark.unit
@@ -29,14 +37,47 @@ async def test_hypothesize_returns_stub() -> None:
 
 
 # ---------------------------------------------------------------------------
-# run_backtest
+# run_backtest (harness delegate)
 # ---------------------------------------------------------------------------
 
 
-async def test_run_backtest_returns_stub() -> None:
-    result = await run_backtest({"name": "x"})
-    assert result["status"] == "stub"
-    assert "sharpe" in result
+async def test_run_backtest_delegates_to_harness_with_expected_kwargs() -> None:
+    """The orchestrator's run_backtest must pass through to the harness
+    with db + strategy_id supplied so strategy_runs rows get written."""
+    strategy_id = uuid.uuid4()
+    strategy = cast(StrategyModule, MagicMock(spec=["on_tick"]))
+    source = cast(TickSource, MagicMock(spec=["iter_ticks"]))
+    params: dict[str, Any] = {"stake": Decimal("10")}
+    start = datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)
+    time_range = (start, start + timedelta(minutes=10))
+    db = MagicMock()
+
+    canned_result: dict[str, Any] = {
+        "sharpe": 0.5,
+        "total_pnl_gbp": Decimal("0"),
+        "max_drawdown_gbp": Decimal("0"),
+        "n_trades": 5,
+        "win_rate": 0.0,
+        "n_ticks_consumed": 10,
+        "started_at": start,
+        "ended_at": start + timedelta(minutes=10),
+    }
+
+    with patch(
+        "research_orchestrator.workflow._harness_run_backtest",
+        new=AsyncMock(return_value=canned_result),
+    ) as mock_harness:
+        result = await run_backtest(strategy_id, strategy, params, source, time_range, db)
+
+    assert result == canned_result
+    mock_harness.assert_awaited_once_with(
+        strategy=strategy,
+        params=params,
+        source=source,
+        time_range=time_range,
+        db=db,
+        strategy_id=strategy_id,
+    )
 
 
 # ---------------------------------------------------------------------------

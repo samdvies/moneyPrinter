@@ -1,0 +1,356 @@
+"""Historical market-data loader for Phase 6a backtest harness.
+
+Populates the `market_data_archive` hypertable from two sources:
+
+* `betfair_tar`  — a directory of Betfair historical TAR files. Each TAR member
+  is a bz2-compressed NDJSON stream of Exchange Stream API messages. We only
+  parse `mcm` (market change message) lines; each `mc.rc` runner change becomes
+  one `MarketData` row keyed by `f"{market_id}:{selection_id}"` for parity with
+  `betfair_adapter.map_market_book_to_messages`.
+* `redis_xrange` — replays `XRANGE market.data - +` and parses each entry's
+  `json` field back into `MarketData`. Lets a live ingestion session seed the
+  archive.
+
+Note: the ``main_from_env`` / ``python -m ingestion.historical_loader`` CLI
+entrypoint drives ``betfair_tar`` only. ``redis_xrange`` is a library-only
+mode invoked programmatically from other services or tests; it deliberately
+has no dedicated env var, to keep the CLI surface tight.
+
+Design notes:
+
+* The live Betfair adapter takes a ``betfairlightweight`` object with attribute
+  ladders; historical mcm lines are plain dicts with list ladders
+  ``[[level, price, size], ...]``. The shapes genuinely differ, so we keep the
+  decode in this module rather than shoehorning mcm into the live adapter.
+* Idempotency uses ``ON CONFLICT (venue, market_id, observed_at) DO NOTHING``.
+* Row-count return uses ``INSERT ... RETURNING 1`` so we count rows that were
+  actually inserted (not merely processed). Inserts are issued one SQL
+  statement per batch via asyncpg's ``unnest`` trick, so flushing a 5000-row
+  batch is a single round-trip, not 5000.
+
+Config:
+
+* ``algobet_common.config.Settings.historical_archive_dir`` and
+  ``historical_load_batch_size`` populate the CLI entrypoint
+  :func:`main_from_env` — run ``python -m ingestion.historical_loader`` to
+  drive the loader end-to-end from environment settings.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import bz2
+import json
+import logging
+import tarfile
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, Literal, Protocol
+
+import asyncpg
+from algobet_common.schemas import MarketData, Venue
+
+LOGGER = logging.getLogger(__name__)
+
+# Single batched INSERT statement: one SQL parse + one round-trip regardless
+# of batch size. RETURNING 1 yields one row per *actual* insertion (ON
+# CONFLICT DO NOTHING suppresses conflict rows from RETURNING), so
+# len(result) == rows actually written.
+_INSERT_SQL = (
+    "INSERT INTO market_data_archive "
+    "(venue, market_id, observed_at, bids, asks, last_trade) "
+    "SELECT * FROM unnest("
+    "  $1::text[], $2::text[], $3::timestamptz[], "
+    "  $4::jsonb[], $5::jsonb[], $6::numeric[]"
+    ") "
+    "ON CONFLICT (venue, market_id, observed_at) DO NOTHING "
+    "RETURNING 1"
+)
+
+
+class _AsyncpgExecutor(Protocol):
+    """Minimal asyncpg surface we need; lets us accept Connection or Pool-acquired conn."""
+
+    async def fetch(self, query: str, *args: Any) -> list[asyncpg.Record]: ...
+
+
+def _ladder_from_mcm(rows: Iterable[Any]) -> list[tuple[Decimal, Decimal]]:
+    """Normalise an mcm ladder (``[[level, price, size], ...]``) into
+    ``list[(price, size)]``. Non-positive sizes are dropped — Betfair uses
+    ``size == 0`` to mean "level was cleared"."""
+    result: list[tuple[Decimal, Decimal]] = []
+    for row in rows or ():
+        # mcm ladders are lists: [level, price, size].
+        if not isinstance(row, list | tuple) or len(row) < 3:
+            continue
+        price = row[1]
+        size = row[2]
+        if price is None or size is None:
+            continue
+        try:
+            price_dec = Decimal(str(price))
+            size_dec = Decimal(str(size))
+        except (ArithmeticError, ValueError):
+            continue
+        if size_dec <= 0:
+            continue
+        result.append((price_dec, size_dec))
+    return result
+
+
+def decode_mcm_line(line: bytes | str) -> list[MarketData]:
+    """Decode a single Betfair Exchange Stream `mcm` JSON line into MarketData.
+
+    Non-mcm ops (heartbeats, connection frames, `ocm`) yield an empty list.
+    Unknown venues never occur here — Betfair stream data is always Betfair.
+    """
+    text = line.decode("utf-8").strip() if isinstance(line, bytes | bytearray) else line.strip()
+    if not text:
+        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        LOGGER.warning("skipping malformed mcm line: %r", text[:120])
+        return []
+    if not isinstance(payload, dict) or payload.get("op") != "mcm":
+        return []
+
+    publish_time_ms = payload.get("pt")
+    if publish_time_ms is None:
+        timestamp = datetime.now(UTC)
+    else:
+        timestamp = datetime.fromtimestamp(int(publish_time_ms) / 1000, tz=UTC)
+
+    messages: list[MarketData] = []
+    for market_change in payload.get("mc") or ():
+        market_id = market_change.get("id")
+        if not market_id:
+            continue
+        for runner_change in market_change.get("rc") or ():
+            selection_id = runner_change.get("id")
+            if selection_id is None:
+                continue
+            bids = _ladder_from_mcm(runner_change.get("batb"))
+            asks = _ladder_from_mcm(runner_change.get("batl"))
+            ltp = runner_change.get("ltp")
+            last_trade = Decimal(str(ltp)) if ltp is not None else None
+            messages.append(
+                MarketData(
+                    venue=Venue.BETFAIR,
+                    market_id=f"{market_id}:{selection_id}",
+                    timestamp=timestamp,
+                    bids=bids,
+                    asks=asks,
+                    last_trade=last_trade,
+                )
+            )
+    return messages
+
+
+def iter_mcm_lines_from_tar(tar_path: Path) -> Iterator[bytes]:
+    """Yield raw NDJSON lines from every bz2 member inside a Betfair historical TAR.
+
+    Betfair's historical archive packages each market as a bz2-compressed NDJSON
+    stream; a TAR bundles many of those. We stream decompression rather than
+    reading whole members into memory.
+    """
+    with tarfile.open(tar_path, mode="r:*") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            # Betfair historical members are uniformly bz2; tolerate plain .json
+            # for synthetic fixtures that skip the outer compression.
+            fh = tar.extractfile(member)
+            if fh is None:
+                continue
+            raw = fh.read()
+            if member.name.endswith(".bz2") or _looks_like_bz2(raw):
+                try:
+                    raw = bz2.decompress(raw)
+                except OSError:
+                    LOGGER.warning("failed to bz2-decompress %s; skipping", member.name)
+                    continue
+            for line in raw.splitlines():
+                if line.strip():
+                    yield line
+
+
+def _looks_like_bz2(data: bytes) -> bool:
+    return data.startswith(b"BZh")
+
+
+def iter_archive_from_directory(directory: Path) -> Iterator[MarketData]:
+    """Walk a directory of Betfair historical TARs and yield MarketData rows."""
+    if not directory.is_dir():
+        raise NotADirectoryError(f"historical archive dir not found: {directory}")
+    for tar_path in sorted(directory.glob("*.tar")):
+        for line in iter_mcm_lines_from_tar(tar_path):
+            yield from decode_mcm_line(line)
+
+
+def _serialise_ladder(ladder: list[tuple[Decimal, Decimal]]) -> str:
+    """JSONB-safe serialisation: list of [price, size] strings to preserve precision."""
+    return json.dumps([[str(price), str(size)] for price, size in ladder])
+
+
+async def _insert_batch(
+    conn: _AsyncpgExecutor,
+    venue: str,
+    batch: list[MarketData],
+) -> int:
+    """Insert one batch in a single SQL round-trip.
+
+    Uses asyncpg's ``unnest`` trick so arbitrary batch sizes cost one SQL
+    parse. Returns the count of rows actually inserted; ``ON CONFLICT DO
+    NOTHING`` filters conflicting rows out of ``RETURNING 1``.
+    """
+    if not batch:
+        return 0
+    n = len(batch)
+    venues = [venue] * n
+    market_ids = [tick.market_id for tick in batch]
+    timestamps = [tick.timestamp for tick in batch]
+    bids = [_serialise_ladder(tick.bids) for tick in batch]
+    asks = [_serialise_ladder(tick.asks) for tick in batch]
+    last_trades = [tick.last_trade for tick in batch]
+    rows = await conn.fetch(
+        _INSERT_SQL,
+        venues,
+        market_ids,
+        timestamps,
+        bids,
+        asks,
+        last_trades,
+    )
+    return len(rows)
+
+
+async def _as_async(sync_iter: Iterable[MarketData]) -> AsyncIterator[MarketData]:
+    """Adapt a synchronous iterable of MarketData into an async iterator.
+
+    Lets :func:`_drain_in_batches` speak a single protocol (``AsyncIterable``)
+    regardless of whether the upstream source is sync (tar walking) or async
+    (Redis XRANGE).
+    """
+    for item in sync_iter:
+        yield item
+
+
+async def _drain_in_batches(
+    ticks: AsyncIterable[MarketData],
+    conn: _AsyncpgExecutor,
+    venue: str,
+    batch_size: int,
+) -> int:
+    total = 0
+    batch: list[MarketData] = []
+
+    async def _flush() -> None:
+        nonlocal total
+        if batch:
+            total += await _insert_batch(conn, venue, batch)
+            batch.clear()
+
+    async for tick in ticks:
+        batch.append(tick)
+        if len(batch) >= batch_size:
+            await _flush()
+    await _flush()
+    return total
+
+
+async def _iter_redis_xrange(
+    redis_client: Any, stream: str = "market.data"
+) -> AsyncIterator[MarketData]:
+    """XRANGE the configured stream end-to-end and yield parsed MarketData."""
+    entries = await redis_client.xrange(stream, min="-", max="+")
+    for _entry_id, fields in entries:
+        # redis-py returns bytes when decode_responses=False, str otherwise.
+        raw = fields.get(b"json") if b"json" in fields else fields.get("json")
+        if raw is None:
+            continue
+        if isinstance(raw, bytes | bytearray):
+            raw = raw.decode("utf-8")
+        yield MarketData.model_validate_json(raw)
+
+
+async def load_archive(
+    source: Literal["betfair_tar", "redis_xrange"],
+    *,
+    conn: _AsyncpgExecutor,
+    venue: str = "betfair",
+    batch_size: int = 5000,
+    archive_dir: Path | str | None = None,
+    redis_client: Any | None = None,
+    stream: str = "market.data",
+) -> int:
+    """Load historical MarketData into the archive hypertable.
+
+    Returns the number of rows actually inserted (rows that survived
+    `ON CONFLICT DO NOTHING`). Re-running with no new data returns 0.
+    """
+    if venue not in (Venue.BETFAIR.value, Venue.KALSHI.value):
+        raise ValueError(f"unsupported venue for archive loader: {venue!r}")
+
+    if source == "betfair_tar":
+        if archive_dir is None:
+            raise ValueError("betfair_tar mode requires archive_dir")
+        directory = Path(archive_dir)
+        return await _drain_in_batches(
+            _as_async(iter_archive_from_directory(directory)),
+            conn,
+            venue,
+            batch_size,
+        )
+
+    if source == "redis_xrange":
+        if redis_client is None:
+            raise ValueError("redis_xrange mode requires redis_client")
+        return await _drain_in_batches(
+            _iter_redis_xrange(redis_client, stream=stream),
+            conn,
+            venue,
+            batch_size,
+        )
+
+    raise ValueError(f"unknown source: {source!r}")
+
+
+async def main_from_env() -> int:
+    """CLI entrypoint: wire ``Settings`` into :func:`load_archive`.
+
+    Reads ``historical_archive_dir`` and ``historical_load_batch_size`` from
+    :class:`algobet_common.config.Settings` and drives the ``betfair_tar``
+    loader. Raises ``ValueError`` if ``historical_archive_dir`` is unset.
+    """
+    # Deferred: avoids pulling asyncpg + Settings into module import graph for library-only callers.
+    from algobet_common.config import Settings
+    from algobet_common.db import Database
+
+    settings = Settings()
+    if not settings.historical_archive_dir:
+        raise ValueError(
+            "historical_archive_dir is not configured; set HISTORICAL_ARCHIVE_DIR in env"
+        )
+
+    db = Database(settings.postgres_dsn)
+    await db.connect()
+    try:
+        async with db.acquire() as conn:
+            return await load_archive(
+                "betfair_tar",
+                conn=conn,
+                venue="betfair",
+                archive_dir=settings.historical_archive_dir,
+                batch_size=settings.historical_load_batch_size,
+            )
+    finally:
+        await db.close()
+
+
+if __name__ == "__main__":  # pragma: no cover - invoked via python -m
+    logging.basicConfig(level=logging.INFO)
+    inserted = asyncio.run(main_from_env())
+    LOGGER.info("historical_loader inserted %d rows", inserted)
