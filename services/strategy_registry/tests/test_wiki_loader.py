@@ -23,21 +23,6 @@ from strategy_registry.wiki_loader import load_strategy_from_wiki
 _FIXTURES = Path(__file__).parent / "fixtures" / "wiki"
 
 
-def _fake_db_returning(strategy: Strategy) -> Any:
-    """Build a minimal object that satisfies ``load_strategy_from_wiki``'s Database dependency.
-
-    The loader only calls ``upsert_strategy(db, ...)``. Tests that don't care
-    about the UPSERT (i.e. the failure-path tests) use this stub so they don't
-    touch Postgres; tests that DO care about the UPSERT use the real Database
-    and are marked ``@pytest.mark.integration``.
-    """
-
-    class _Stub:
-        pass
-
-    return _Stub()
-
-
 # ---------------------------------------------------------------------------
 # Happy path (unit: patches upsert_strategy, no DB required)
 # ---------------------------------------------------------------------------
@@ -75,7 +60,7 @@ async def test_happy_path_parses_and_upserts(monkeypatch: pytest.MonkeyPatch) ->
 
     result = await load_strategy_from_wiki(
         _FIXTURES / "happy-trivial.md",
-        _fake_db_returning,  # type: ignore[arg-type]
+        AsyncMock(),
     )
 
     assert result.slug == "happy-trivial"
@@ -125,7 +110,7 @@ async def test_missing_module_raises_module_not_found() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Failure: module imports but has no on_tick attr (stdlib ``pathlib``)
+# Failure: module imports but has no on_tick attr
 # ---------------------------------------------------------------------------
 
 
@@ -135,6 +120,26 @@ async def test_module_without_on_tick_raises_strategy_load_error() -> None:
             _FIXTURES / "missing-on-tick.md",
             AsyncMock(),
         )
+
+
+# ---------------------------------------------------------------------------
+# Failure: module path outside allowed namespace (``backtest_engine.strategies.*``)
+# ---------------------------------------------------------------------------
+
+
+async def test_module_outside_allowed_namespace_raises() -> None:
+    """Allowlist check must fire *before* import_module.
+
+    ``os.path`` is a real, importable stdlib module — using it here verifies
+    that the guard blocks the import entirely rather than letting it run and
+    checking afterwards.  The error message must name the disallowed namespace.
+    """
+    with pytest.raises(StrategyLoadError, match="outside allowed namespace") as exc_info:
+        await load_strategy_from_wiki(
+            _FIXTURES / "outside-namespace.md",
+            AsyncMock(),
+        )
+    assert "backtest_engine.strategies." in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

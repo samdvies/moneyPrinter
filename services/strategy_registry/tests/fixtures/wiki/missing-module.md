@@ -7,7 +7,7 @@ status: hypothesis
 author-agent: human
 created: 2026-04-20
 updated: 2026-04-20
-module: nonexistent.package.that.does.not.exist
+module: backtest_engine.strategies.nonexistent_module
 parameters:
   stake_gbp: "10"
 tags: [strategy, betfair, test-fixture]

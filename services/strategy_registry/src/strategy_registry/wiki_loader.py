@@ -12,12 +12,16 @@ Steps:
     4. Enforce the filename invariant: ``wiki_path.stem == frontmatter["strategy-id"]``.
        The filename is the canonical key; a mismatch is a human/tooling bug that
        must fail loud.
-    5. ``importlib.import_module(frontmatter["module"])`` — verifies the dotted
+    5. Enforce the module namespace allowlist: ``frontmatter["module"]`` must start
+       with ``backtest_engine.strategies.`` (defense in depth — 6c's AST check is
+       belt-and-braces). Any other dotted path is rejected *before* ``import_module``
+       is called, closing the attack surface for LLM-emitted module paths in 6c.
+    6. ``importlib.import_module(frontmatter["module"])`` — verifies the dotted
        path resolves. Missing module raises ``ModuleNotFoundError`` unchanged
        so callers can distinguish that from a shape failure.
-    6. Verify the imported module has a callable ``on_tick`` attribute. Do NOT
+    7. Verify the imported module has a callable ``on_tick`` attribute. Do NOT
        invoke it here — AST / runtime safety is 6c's concern.
-    7. ``upsert_strategy(slug=stem, parameters=frontmatter["parameters"],
+    8. ``upsert_strategy(slug=stem, parameters=frontmatter["parameters"],
        wiki_path=str(wiki_path))`` — idempotent under re-load.
 
 Status is never written by the loader (it defaults to ``hypothesis`` on insert
@@ -47,6 +51,11 @@ _REQUIRED_KEYS: tuple[str, ...] = (
 )
 
 _FRONTMATTER_FENCE = "---"
+
+# Allowlist prefix for strategy module paths.  Only modules under this
+# namespace may be imported by the loader.  6c can extend this constant if
+# additional namespaces are needed — keep it narrow until then.
+_ALLOWED_MODULE_PREFIX = "backtest_engine.strategies."
 
 
 def _split_frontmatter(text: str) -> str:
@@ -88,11 +97,20 @@ def _validate_keys(frontmatter: dict[str, Any]) -> None:
 def _verify_module_shape(dotted_path: str) -> None:
     """Import ``dotted_path`` and verify it exposes a callable ``on_tick``.
 
+    ``dotted_path`` must begin with ``backtest_engine.strategies.`` (see
+    ``_ALLOWED_MODULE_PREFIX``).  This check runs *before* ``import_module``
+    so that side-effectful imports outside the allowed namespace are blocked
+    entirely.  defense in depth — 6c's AST check is belt-and-braces.
+
     A missing module raises ``ModuleNotFoundError`` unchanged (per plan).
     A module that imports but has no callable ``on_tick`` attribute raises
     ``StrategyLoadError`` — this is the structural ``StrategyModule`` check.
     The function itself is never invoked; runtime safety is 6c's job.
     """
+    if not dotted_path.startswith(_ALLOWED_MODULE_PREFIX):
+        raise StrategyLoadError(
+            f"module '{dotted_path}' outside allowed namespace '{_ALLOWED_MODULE_PREFIX}*'"
+        )
     module = importlib.import_module(dotted_path)
     attr = getattr(module, "on_tick", None)
     if attr is None:
