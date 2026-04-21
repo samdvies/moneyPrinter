@@ -14,7 +14,9 @@ the series trends.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 import redis.asyncio as aioredis
@@ -29,6 +31,27 @@ from strategy_registry.models import Status, Strategy
 pytestmark = pytest.mark.integration
 
 _REFERENCE_SLUG = "mean-reversion-ref"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REFERENCE_WIKI_PATH = _REPO_ROOT / "wiki" / "30-Strategies" / "mean-reversion-ref.md"
+
+
+@pytest.fixture(autouse=True)
+def _snapshot_reference_wiki() -> Iterator[None]:
+    """Snapshot + restore the reference wiki file around every integration test.
+
+    Phase 6b.5 adds wiki write-back in ``runner.run_once``, which rewrites
+    ``wiki/30-Strategies/mean-reversion-ref.md`` in place with fabricated
+    backtest metrics. This fixture is module-local autouse (not
+    package-wide) because only tests in this module dispatch ``run_once``
+    against the real on-disk file; unit tests in sibling modules operate
+    on ``tmp_path`` copies and must not pay the snapshot cost.
+    """
+    snapshot = _REFERENCE_WIKI_PATH.read_bytes() if _REFERENCE_WIKI_PATH.exists() else None
+    try:
+        yield
+    finally:
+        if snapshot is not None:
+            _REFERENCE_WIKI_PATH.write_bytes(snapshot)
 
 
 async def _find_by_slug(db: Database, slug: str) -> Strategy | None:

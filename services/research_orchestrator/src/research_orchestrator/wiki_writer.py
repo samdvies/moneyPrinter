@@ -157,19 +157,29 @@ def write_backtest_results(
       the caller passes ``datetime.now(UTC)``, not the harness clock.
 
     Preserves frontmatter key order, all body sections other than
-    ``## Backtest Results``, and file-level line endings (LF).
+    ``## Backtest Results``, and the file's dominant line ending (LF or
+    CRLF). Detecting CRLF matters on Windows-authored wiki files — a naive
+    rejoin with ``"\n"`` would silently normalise the whole file to LF
+    and produce a spurious git diff on first write.
     """
-    text = wiki_path.read_text(encoding="utf-8")
-    # splitlines() strips the trailing newline; track whether the
-    # original file ended with one so we can restore it exactly.
-    had_trailing_newline = text.endswith("\n")
+    # Read with newline="" to disable universal-newline translation so
+    # we can faithfully detect the file's dominant line ending; otherwise
+    # Python would transparently convert CRLF -> LF on read and we'd lose
+    # the information needed to round-trip Windows-authored files.
+    with wiki_path.open(encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    newline = "\r\n" if "\r\n" in text else "\n"
+    # splitlines() strips the trailing newline and handles both CRLF and
+    # LF transparently; track whether the original file ended with a
+    # newline so we can restore the trailing terminator exactly.
+    had_trailing_newline = text.endswith(("\r\n", "\n"))
     lines = text.splitlines()
 
     new_date = run_ended_at.strftime("%Y-%m-%d")
     lines = _rewrite_updated_field(lines, new_date)
     lines = _rewrite_backtest_block(lines, run_metrics)
 
-    output = "\n".join(lines)
+    output = newline.join(lines)
     if had_trailing_newline:
-        output += "\n"
-    wiki_path.write_text(output, encoding="utf-8")
+        output += newline
+    wiki_path.write_text(output, encoding="utf-8", newline="")

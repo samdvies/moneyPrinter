@@ -118,6 +118,41 @@ def test_write_backtest_results_idempotent(tmp_path: Path) -> None:
     assert first == second
 
 
+def test_write_backtest_results_preserves_crlf(tmp_path: Path) -> None:
+    """A Windows-authored (CRLF) wiki file must round-trip with its CRLF
+    line endings intact. Without line-ending preservation the writer would
+    silently normalise the file to LF on first write and produce a
+    whole-file git diff on Windows-hosted repos.
+    """
+    # Build a CRLF copy of the reference file. Read bytes and replace
+    # bare LF with CRLF so the on-disk input is guaranteed CRLF-terminated.
+    src_bytes = _REFERENCE_WIKI_PATH.read_bytes()
+    # Normalise any stray CRLF first, then convert all LF to CRLF.
+    lf_bytes = src_bytes.replace(b"\r\n", b"\n")
+    crlf_bytes = lf_bytes.replace(b"\n", b"\r\n")
+    wiki_path = tmp_path / "mean-reversion-ref.md"
+    wiki_path.write_bytes(crlf_bytes)
+
+    run_ended_at = datetime(2026, 4, 21, 9, 5, 0, tzinfo=UTC)
+    write_backtest_results(wiki_path, _stub_metrics(), run_ended_at)
+
+    out_bytes = wiki_path.read_bytes()
+    # Must still contain CRLF terminators, and must not contain any bare LF.
+    assert b"\r\n" in out_bytes
+    assert b"\n" in out_bytes  # sanity: CRLF contains LF
+    # No bare LF: every LF must be preceded by CR.
+    for idx, byte in enumerate(out_bytes):
+        if byte == 0x0A:  # LF
+            assert (
+                idx > 0 and out_bytes[idx - 1] == 0x0D
+            ), f"bare LF at byte offset {idx} — CRLF was not preserved"
+
+    # And the content update still took effect.
+    out_text = out_bytes.decode("utf-8")
+    assert "updated: 2026-04-21" in out_text
+    assert "Trades: 42" in out_text
+
+
 def test_write_backtest_results_updates_only_updated_field(tmp_path: Path) -> None:
     """A second call with a later ``run_ended_at`` but identical metrics
     must only change the ``updated:`` line; everything else byte-identical.
