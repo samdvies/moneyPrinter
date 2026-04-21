@@ -1,6 +1,6 @@
 """Integration test for research_orchestrator run_once.
 
-Requires running Postgres and Redis.  Skip gracefully if unavailable.
+Requires running Postgres and Redis. Skip gracefully if unavailable.
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ async def test_run_once_creates_paper_strategy(
     bus: object,
     redis_url: str,
 ) -> None:
-    """run_once should create a strategy at status=paper and publish two ResearchEvents."""
+    """run_once should create a strategy at status=paper, publish two
+    ResearchEvents, and persist a strategy_runs row with real harness
+    metrics (n_trades > 0, n_ticks_consumed > 0, ended_at populated)."""
     from algobet_common.bus import BusClient
     from algobet_common.db import Database
 
@@ -36,20 +38,49 @@ async def test_run_once_creates_paper_strategy(
     all_strategies = await crud.list_strategies(db)
     stub_strategies = [s for s in all_strategies if s.slug.startswith("stub-hypothesis-")]
     paper_strategies = [s for s in stub_strategies if s.status == Status.PAPER]
-    assert stub_strategies, (
-        "Expected at least one paper strategy with slug starting 'stub-hypothesis-'"
-    )
+    assert (
+        stub_strategies
+    ), "Expected at least one paper strategy with slug starting 'stub-hypothesis-'"
     assert paper_strategies, "Expected at least one stub strategy promoted to paper"
 
     # No strategy should have been pushed to awaiting-approval or live.
-    forbidden = [
-        s
-        for s in stub_strategies
-        if s.status in (Status.AWAITING_APPROVAL, Status.LIVE)
-    ]
-    assert not forbidden, (
-        f"Orchestrator must not create awaiting-approval or live strategies: {forbidden}"
-    )
+    forbidden = [s for s in stub_strategies if s.status in (Status.AWAITING_APPROVAL, Status.LIVE)]
+    assert (
+        not forbidden
+    ), f"Orchestrator must not create awaiting-approval or live strategies: {forbidden}"
+
+    # Verify the harness persisted a strategy_runs row with real metrics.
+    # Pick the most recent paper strategy created by this run and confirm
+    # its backtest row is sealed (ended_at set) with non-stub metrics.
+    latest_paper = max(paper_strategies, key=lambda s: s.created_at)
+    async with db.acquire() as conn:
+        run_row = await conn.fetchrow(
+            """
+            SELECT mode, ended_at, metrics
+              FROM strategy_runs
+             WHERE strategy_id = $1
+             ORDER BY started_at DESC
+             LIMIT 1
+            """,
+            latest_paper.id,
+        )
+    assert run_row is not None, f"Expected a strategy_runs row for strategy {latest_paper.id}"
+    assert run_row["mode"] == "backtest"
+    assert run_row["ended_at"] is not None, "Harness did not seal the strategy_runs row"
+    metrics = run_row["metrics"]
+    # asyncpg may return jsonb as str or dict depending on codec config; both
+    # cases must contain the harness' fixed-shape keys.
+    if isinstance(metrics, str):
+        import json as _json
+
+        metrics = _json.loads(metrics)
+    assert metrics.get("n_ticks_consumed", 0) > 0
+    assert (
+        metrics.get("n_trades", 0) > 0
+    ), "Expected trivial strategy to fire at least once against the synthetic best-ask-1.40 source"
+    # The stub used to write status='stub'; the real harness never sets that
+    # key, so promotion is no longer theatre.
+    assert "status" not in metrics or metrics["status"] != "stub"
 
     # Verify Redis stream contains at least 2 entries (backtesting + paper events).
     redis_client = aioredis.from_url(redis_url, decode_responses=True)
@@ -59,8 +90,8 @@ async def test_run_once_creates_paper_strategy(
             count=100,
         )
         event_count = sum(len(stream_entries) for _stream, stream_entries in entries)
-        assert event_count >= 2, (
-            f"Expected >= 2 ResearchEvent entries in {Topic.RESEARCH_EVENTS}; got {event_count}"
-        )
+        assert (
+            event_count >= 2
+        ), f"Expected >= 2 ResearchEvent entries in {Topic.RESEARCH_EVENTS}; got {event_count}"
     finally:
         await redis_client.aclose()

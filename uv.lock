@@ -913,6 +913,7 @@ version = "0.0.1"
 source = { editable = "services/research_orchestrator" }
 dependencies = [
     { name = "algobet-common" },
+    { name = "backtest-engine" },
     { name = "strategy-registry" },
     { name = "typer" },
 ]
@@ -920,6 +921,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "algobet-common", editable = "services/common" },
+    { name = "backtest-engine", editable = "services/backtest_engine" },
     { name = "strategy-registry", editable = "services/strategy_registry" },
     { name = "typer", specifier = ">=0.12" },
 ]

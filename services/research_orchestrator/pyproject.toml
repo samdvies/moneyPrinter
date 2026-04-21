@@ -4,6 +4,7 @@ version = "0.0.1"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "algobet-common",
+    "backtest-engine",
     "strategy-registry",
     "typer>=0.12",
 ]
@@ -17,4 +18,5 @@ packages = ["src/research_orchestrator"]
 
 [tool.uv.sources]
 algobet-common = { workspace = true }
+backtest-engine = { workspace = true }
 strategy-registry = { workspace = true }
