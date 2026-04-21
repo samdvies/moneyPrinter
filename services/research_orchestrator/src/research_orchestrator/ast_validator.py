@@ -56,9 +56,13 @@ ALLOWED_NODES: frozenset[str] = frozenset(
         "FunctionDef",
         "Return",
         "If",
+        # For/range/enumerate/zip admitted beyond spec §4.3 — needed for idiomatic
+        # window iteration; revisit if strategy surface allows pure statistics-based
+        # formulations without explicit loops.
         "For",
         "Assign",
         "AugAssign",
+        "Pass",
         # Expression nodes
         "IfExp",
         "BoolOp",
@@ -74,6 +78,11 @@ ALLOWED_NODES: frozenset[str] = frozenset(
         "Dict",
         "Subscript",
         "Slice",
+        # f-string nodes — admitted; Grok emits them routinely for diagnostic
+        # strings; content is plain string formatting with no dynamic execution risk.
+        "JoinedStr",
+        "FormattedValue",
+        "FormatSpec",
         # Comprehension forms
         "ListComp",
         "GeneratorExp",
@@ -128,11 +137,9 @@ ALLOWED_CALLABLES: frozenset[str] = frozenset(
         "sorted",
         "float",
         "int",
-        "bool",
-        "str",
-        "list",
-        "dict",
-        "tuple",
+        # bool/str/list/dict/tuple coercers removed: pure strategies only need
+        # float/int for numeric coercion; the collection/string coercers widen
+        # the surface without a clear need.
         "range",
         "enumerate",
         "zip",
@@ -166,9 +173,6 @@ REJECTED_ATTR_NAMES: frozenset[str] = frozenset(
         "__dict__",
     }
 )
-
-# Module names whose attribute calls are permitted (math.sqrt, statistics.mean …)
-_WHITELISTED_ATTR_MODULES: frozenset[str] = frozenset({"math", "statistics", "dataclasses"})
 
 
 # ---------------------------------------------------------------------------
@@ -206,10 +210,12 @@ def validate(source: str) -> ValidationResult:
     try:
         tree = ast.parse(source, mode="exec")
     except SyntaxError as exc:
+        # exc.offset is 1-based; normalise to 0-based col_offset convention.
+        col = max((exc.offset or 1) - 1, 0)
         v = Violation(
             node_type="SyntaxError",
             line=exc.lineno or 0,
-            col=exc.offset or 0,
+            col=col,
             reason=str(exc),
         )
         return ValidationResult(ok=False, module=None, violations=(v,))
@@ -263,24 +269,33 @@ class _WhitelistWalker(ast.NodeVisitor):
     # ------------------------------------------------------------------
 
     def visit_Module(self, node: ast.Module) -> None:
-        """Enforce top-level structure: docstring? imports* functiondefs+."""
+        """Enforce top-level structure: docstring? imports* functiondefs+.
+
+        Statements rejected here are NOT further recursed into by generic_visit
+        (we skip them) to avoid double-reporting their child nodes.  Allowed
+        statements are walked normally.
+        """
+        allowed_stmts: list[ast.stmt] = []
         for i, stmt in enumerate(node.body):
             if i == 0 and isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
-                # Optional leading docstring — allowed
-                continue
-            if isinstance(stmt, ast.Import):
+                # Optional leading docstring — allowed; walk it.
+                allowed_stmts.append(stmt)
+            elif isinstance(stmt, ast.Import):
                 # Whitelisted imports only — validated in visit_Import
-                pass
+                allowed_stmts.append(stmt)
             elif isinstance(stmt, ast.FunctionDef):
                 # Allowed — validated in visit_FunctionDef
-                pass
+                allowed_stmts.append(stmt)
             else:
                 self._violation(
                     stmt,
                     f"module-level statement not allowed: {self._node_name(stmt)}",
                 )
-        # Continue walking children
-        self.generic_visit(node)
+                # Do NOT recurse into the rejected subtree — its children would
+                # generate secondary/duplicate violations (e.g. the Assign's
+                # child Name/Constant would fire generic_visit checks again).
+        for stmt in allowed_stmts:
+            self.visit(stmt)
 
     # ------------------------------------------------------------------
     # Import nodes
@@ -353,6 +368,21 @@ class _WhitelistWalker(ast.NodeVisitor):
     def visit_YieldFrom(self, node: ast.YieldFrom) -> None:
         self._violation(node, "yield from is not allowed")
 
+    # Walrus operator (:=) — explicit rejection for clear violation message
+    def visit_NamedExpr(self, node: ast.AST) -> None:
+        self._violation(node, "NamedExpr (walrus :=) is not allowed")
+
+    # Python 3.10+ match statement — explicit rejection for clear message
+    def visit_Match(self, node: ast.AST) -> None:
+        self._violation(node, "match statement is not allowed")
+
+    def visit_MatchCase(self, node: ast.AST) -> None:
+        self._violation(node, "match statement is not allowed")
+
+    # Starred (*args / *collection) prevents unpacking tricks
+    def visit_Starred(self, node: ast.AST) -> None:
+        self._violation(node, "Starred (*args / *collection) is not allowed")
+
     # ------------------------------------------------------------------
     # FunctionDef — check decorator_list, then recurse
     # ------------------------------------------------------------------
@@ -360,6 +390,16 @@ class _WhitelistWalker(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         if node.decorator_list:
             self._violation(node, "decorators on FunctionDef are not allowed")
+        if self._func_depth > 0:
+            # Nested function definition — pure-function style allows only one
+            # top-level strategy function.
+            self._violation(
+                node,
+                f"nested FunctionDef '{node.name}' is not allowed; "
+                "only top-level strategy functions are permitted",
+            )
+            # Do NOT recurse into the nested def body to avoid cascading noise.
+            return
         self._func_depth += 1
         self.generic_visit(node)
         self._func_depth -= 1
@@ -369,21 +409,14 @@ class _WhitelistWalker(ast.NodeVisitor):
     # ------------------------------------------------------------------
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if self._func_depth == 0:
-            # Module-level assign — always rejected (caught by visit_Module too,
-            # but explicit visit here ensures the Assign node itself is flagged
-            # with a precise reason even when visit_Module is not triggered for
-            # nested scenarios like nested classes).
-            self._violation(node, "Assign at module level is not allowed")
-            return
+        # Module-level assigns are already rejected (and NOT recursed into) by
+        # visit_Module, so if we reach here from a non-module context we are
+        # definitely inside a function.  No double-reporting needed.
         for target in node.targets:
             self._check_assign_target(target)
         self.generic_visit(node)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
-        if self._func_depth == 0:
-            self._violation(node, "AugAssign at module level is not allowed")
-            return
         self._check_assign_target(node.target)
         self.generic_visit(node)
 
@@ -420,23 +453,14 @@ class _WhitelistWalker(ast.NodeVisitor):
             # else: allowed — recurse into args
         elif isinstance(func, ast.Attribute):
             # math.sqrt(x) / statistics.mean(x) / snapshot.get(…)
-            attr_name = func.attr
-            if attr_name in REJECTED_ATTR_NAMES:
+            # The visit_Attribute handler already checks banned attr names as
+            # plain access.  Here we only need to confirm the method leaf is not
+            # in REJECTED_ATTR_NAMES; all other attribute calls on local names
+            # (snapshot.get, window.append, params.setdefault …) are permitted.
+            if func.attr in REJECTED_ATTR_NAMES:
                 self._violation(
-                    node, f"call to banned attribute method '{attr_name}' is not allowed"
+                    node, f"call to banned attribute method '{func.attr}' is not allowed"
                 )
-            else:
-                # Allow attribute calls where the root object is a Name
-                # resolving to a whitelisted module OR snapshot/params (dict
-                # methods like .get, .setdefault, .append are common idioms).
-                root = _get_attr_root(func)
-                if root is not None and root in _WHITELISTED_ATTR_MODULES:
-                    pass  # e.g. math.sqrt — OK
-                else:
-                    # Permit method calls on arbitrary local variables
-                    # (snapshot.get, window.append, params.setdefault …)
-                    # The banned-attr check above already blocks the dangerous ones.
-                    pass
         else:
             # Calling an arbitrary expression (e.g. a subscript, a lambda result)
             self._violation(node, "call to non-Name/non-Attribute expression is not allowed")
@@ -477,18 +501,3 @@ class _WhitelistWalker(ast.NodeVisitor):
             if not hasattr(self, method):
                 self._violation(node, f"node type '{node_name}' is not in the allowed set")
         super().generic_visit(node)
-
-
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-
-def _get_attr_root(node: ast.Attribute) -> str | None:
-    """Return the root Name id of an attribute chain, or None if not a Name root."""
-    current: ast.expr = node.value
-    while isinstance(current, ast.Attribute):
-        current = current.value
-    if isinstance(current, ast.Name):
-        return current.id
-    return None
