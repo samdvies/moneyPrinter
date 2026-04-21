@@ -208,3 +208,48 @@ async def test_upsert_preserves_id_and_status_on_reload(db: Database, tmp_path: 
     assert second.status == Status.BACKTESTING, "loader must not clobber status"
     assert second.parameters["stake_gbp"] == "25"
     assert second.wiki_path == str(dest)
+
+
+# ---------------------------------------------------------------------------
+# Integration: the real repo wiki file round-trips through the loader
+# ---------------------------------------------------------------------------
+#
+# The fixtures above exercise the parser against controlled inputs. This test
+# exercises the on-disk contract between ``wiki/30-Strategies/<slug>.md`` and
+# the registry — if a Phase 6b.3 edit to the real file breaks the frontmatter
+# contract (missing key, wrong module path, filename mismatch), CI catches it
+# here rather than only at operator runtime via ``scripts.seed_reference_strategy``.
+
+
+def _repo_root() -> Path:
+    # services/strategy_registry/tests/test_wiki_loader.py -> repo root is 4 parents up.
+    return Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.integration
+async def test_repo_wiki_reference_file_loads(db: Database) -> None:
+    """The real ``mean-reversion-ref.md`` file in the repo loads into the registry."""
+    wiki_path = _repo_root() / "wiki" / "30-Strategies" / "mean-reversion-ref.md"
+    assert wiki_path.exists(), f"reference wiki file missing: {wiki_path}"
+
+    # Clean any pre-existing row so the `status == HYPOTHESIS` assertion below is
+    # deterministic. The loader's UPSERT preserves status on re-entry, so an
+    # earlier test run or a manual `python -m scripts.seed_reference_strategy`
+    # followed by a transition would otherwise leave the row at BACKTESTING/etc.
+    async with db.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM strategies WHERE slug = $1",
+            "mean-reversion-ref",
+        )
+
+    strategy = await load_strategy_from_wiki(wiki_path, db)
+
+    assert strategy.slug == "mean-reversion-ref"
+    assert strategy.status == Status.HYPOTHESIS
+    assert strategy.wiki_path == str(wiki_path)
+    assert strategy.parameters == {
+        "window_size": 30,
+        "z_threshold": 1.5,
+        "stake_gbp": "10",
+        "venue": "betfair",
+    }
