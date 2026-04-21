@@ -162,6 +162,10 @@ async def run_once(db: Database, bus: BusClient, settings: Settings) -> None:
         db,
     )
 
+    # Full metrics line for operator debugging — easier to diagnose a run
+    # that did not advance without having to tail the harness logs.
+    logger.info("run_once: backtest result = %s", result)
+
     # Advancement gate: both a non-zero trade count AND positive realised
     # P&L.  The delta-P&L settlement in the harness guarantees this gate
     # is reachable — on a trending series it returns <= 0, leaving the

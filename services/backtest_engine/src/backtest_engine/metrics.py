@@ -111,6 +111,15 @@ def build_delta_pnl_settlement() -> DeltaSettlementFn:
     # net BACK/YES exposure, negative for LAY/NO. ``entry_price`` is the
     # volume-weighted-average entry for the open position; undefined (None)
     # when there is no open position.
+    #
+    # Caller contract: for a given (venue, market_id) pair, callers MUST
+    # be consistent about ``selection_id``. Mixing ``None`` and a concrete
+    # UUID for the same market creates two independent position buckets
+    # that never cross-settle, which is probably not what the strategy
+    # intends. The reference mean-reversion strategy always passes
+    # ``selection_id=None``, so this is contractually safe today; 6c's
+    # Kalshi work will need to watch for it when YES/NO selection_ids start
+    # flowing (Debt 4).
     positions: dict[tuple[str, str, str | None], tuple[Decimal, Decimal]] = {}
 
     def _settle(signal: OrderSignal, result: ExecutionResult) -> Decimal:
@@ -221,6 +230,14 @@ def sharpe(per_tick_pnl_series: Sequence[Decimal]) -> float:
 
     Returns 0.0 on degenerate inputs (empty, single, zero stddev) —
     JSONB cannot round-trip NaN.
+
+    6b caveat: the orchestrator currently supplies one sample per tick
+    with most samples equal to zero (only opposite-side close-fills carry
+    realised P&L under the delta-P&L settlement). That dilutes both the
+    mean and the stddev toward zero, so the annualised number is small
+    and mainly useful as a relative indicator between runs of the same
+    length. The advancement gate uses ``total_pnl_gbp``, not ``sharpe``,
+    so the dilution does not affect promotion correctness.
     """
     if len(per_tick_pnl_series) < 2:
         return 0.0
