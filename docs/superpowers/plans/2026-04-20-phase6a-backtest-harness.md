@@ -56,15 +56,15 @@ Two concrete implementations live in `services/backtest_engine/src/backtest_engi
 Table shape:
 - `venue` text (betfair|kalshi)
 - `market_id` text
-- `timestamp` timestamptz
+- `observed_at` timestamptz
 - `bids` jsonb  (list of [price, size])
 - `asks` jsonb
 - `last_trade` numeric(10,4) nullable
 - `ingested_at` timestamptz default now()
 
-Primary key: `(venue, market_id, timestamp)` — deduplicates re-loads of the same TAR file.
-TimescaleDB hypertable on `timestamp` with a sensible chunk interval (start with `INTERVAL '1 day'` — adjustable later).
-Index on `(venue, market_id, timestamp DESC)` for the replay cursor.
+Primary key: `(venue, market_id, observed_at)` — deduplicates re-loads of the same TAR file.
+TimescaleDB hypertable on `observed_at` with a sensible chunk interval (start with `INTERVAL '1 day'` — adjustable later).
+Index on `(venue, market_id, observed_at DESC)` for the replay cursor.
 
 **Done when:** `uv run python -m scripts.migrate` applies cleanly against a fresh DB and `\d+ market_data_archive` in psql shows the hypertable.
 

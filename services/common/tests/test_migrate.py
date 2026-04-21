@@ -78,7 +78,7 @@ async def test_migration_0005_market_data_archive_hypertable(postgres_dsn: str) 
         await conn.execute("DELETE FROM market_data_archive WHERE market_id = 'test-0005'")
         await conn.execute(
             "INSERT INTO market_data_archive "
-            '(venue, market_id, "timestamp", bids, asks, last_trade) '
+            "(venue, market_id, observed_at, bids, asks, last_trade) "
             "VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)",
             "betfair",
             "test-0005",
@@ -89,13 +89,13 @@ async def test_migration_0005_market_data_archive_hypertable(postgres_dsn: str) 
         )
 
         row = await conn.fetchrow(
-            'SELECT venue, market_id, "timestamp", bids, asks, last_trade '
+            "SELECT venue, market_id, observed_at, bids, asks, last_trade "
             "FROM market_data_archive WHERE market_id = 'test-0005'"
         )
         assert row is not None
         assert row["venue"] == "betfair"
         assert row["market_id"] == "test-0005"
-        assert row["timestamp"] == ts
+        assert row["observed_at"] == ts
         assert json.loads(row["bids"]) == [["1.50", "25.00"], ["1.49", "10.00"]]
         assert json.loads(row["asks"]) == [["1.52", "30.00"]]
         assert str(row["last_trade"]) == "1.5100"
@@ -103,9 +103,9 @@ async def test_migration_0005_market_data_archive_hypertable(postgres_dsn: str) 
         # Idempotent re-load: ON CONFLICT DO NOTHING is a no-op on duplicate PK.
         status = await conn.execute(
             "INSERT INTO market_data_archive "
-            '(venue, market_id, "timestamp", bids, asks, last_trade) '
+            "(venue, market_id, observed_at, bids, asks, last_trade) "
             "VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6) "
-            'ON CONFLICT (venue, market_id, "timestamp") DO NOTHING',
+            "ON CONFLICT (venue, market_id, observed_at) DO NOTHING",
             "betfair",
             "test-0005",
             ts,
@@ -113,8 +113,8 @@ async def test_migration_0005_market_data_archive_hypertable(postgres_dsn: str) 
             asks,
             "1.51",
         )
-        # asyncpg returns the command tag; 0 rows inserted on conflict.
-        assert status.endswith("0")
+        # asyncpg returns the command tag; exactly 0 rows inserted on conflict.
+        assert status == "INSERT 0 0"
 
         count = await conn.fetchval(
             "SELECT count(*) FROM market_data_archive WHERE market_id = 'test-0005'"
@@ -125,7 +125,7 @@ async def test_migration_0005_market_data_archive_hypertable(postgres_dsn: str) 
         with pytest.raises(asyncpg.CheckViolationError):
             await conn.execute(
                 "INSERT INTO market_data_archive "
-                '(venue, market_id, "timestamp", bids, asks) '
+                "(venue, market_id, observed_at, bids, asks) "
                 "VALUES ('polymarket', 'test-0005-bad', $1, '[]'::jsonb, '[]'::jsonb)",
                 ts,
             )
