@@ -25,7 +25,7 @@ Services talk over Redis Streams. Topics: `market.data`, `order.signals`, `execu
 Core services:
 1. **Ingestion** (Python) — Betfair streaming + Kalshi REST/WebSocket → `market.data`
 2. **Simulator** (Python) — consumes `market.data`, exposes paper-trading order API identical to live
-3. **Research Orchestrator** (Python + Claude API) — generates hypotheses, runs backtests, evaluates, promotes
+3. **Research Orchestrator** (Python + xAI Grok API, OpenAI-compatible) — generates hypotheses, runs backtests, evaluates, promotes
 4. **Strategy Registry** (Postgres) — strategy lifecycle state, parameters, performance
 5. **Risk Manager** (Python) — pre-flight checks, exposure limits, kill switch
 6. **Execution Engine** (Rust) — live order placement to Betfair + Kalshi (gated by risk manager + human approval)

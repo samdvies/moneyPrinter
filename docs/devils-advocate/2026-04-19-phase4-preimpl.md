@@ -49,4 +49,3 @@ status: passed
 1. Cumulative per-strategy open exposure remains deferred to a later phase.
 2. Approval endpoint auth remains deferred and must be implemented before production.
 3. Current stream topology allows multiple consumer groups on `order.signals`; operational routing discipline remains important as services expand.
-

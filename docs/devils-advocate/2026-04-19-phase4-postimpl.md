@@ -51,4 +51,3 @@ status: passed
 1. Cumulative open-exposure enforcement (Phase 5+ risk hardening).
 2. Authentication/authorization on dashboard approval endpoint (Phase 5 gate hardening).
 3. Bus ack/retry semantics redesign, if required, in shared bus primitives.
-

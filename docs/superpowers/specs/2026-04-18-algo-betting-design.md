@@ -94,7 +94,7 @@ Event-driven microservices communicating over Redis Streams. Python for research
 
 **Reuse:** `flumine`'s simulation harness as reference implementation.
 
-### 3. Research Orchestrator (Python + Claude API)
+### 3. Research Orchestrator (Python + xAI Grok API)
 
 **Responsibility:** the research flywheel. This is the self-improving core.
 
