@@ -7,9 +7,13 @@
 #![deny(missing_docs)]
 
 mod error;
+#[cfg(feature = "mock")]
+mod mock;
 mod types;
 mod venue;
 
 pub use error::VenueError;
+#[cfg(feature = "mock")]
+pub use mock::{MockBehavior, MockResponse, MockVenue};
 pub use types::{ExecutionResult, OrderId, OrderRequest, OrderState, Side};
 pub use venue::Venue;
