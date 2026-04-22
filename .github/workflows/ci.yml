@@ -30,9 +30,14 @@ jobs:
         run: cargo test --workspace
       - name: schema parity
         run: uv run python scripts/check_schema_parity.py
+      - name: start redis for integration test
+        run: docker compose up -d redis
       - name: execution redis integration
         run: cargo test -p execution-bin --test integration_redis -- --ignored
         working-directory: execution
+      - name: stop redis integration stack
+        if: always()
+        run: docker compose down
 
   lint:
     runs-on: ubuntu-latest
