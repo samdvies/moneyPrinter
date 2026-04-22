@@ -1,0 +1,7 @@
+[build]
+# Keep target directory inside execution/ so it never leaks into the Python workspace.
+target-dir = "target"
+
+[net]
+# Use the git CLI for fetches to inherit system credentials (useful on Windows).
+git-fetch-with-cli = true

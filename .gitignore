@@ -61,3 +61,5 @@ logs/
 
 # Runtime data (SQLite spend DB, etc.)
 var/research_orchestrator/
+execution/target/
+.claude/scheduled_tasks.lock
