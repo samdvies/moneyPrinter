@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["execution-core", "execution-smarkets"]
+members = ["execution-core", "execution-smarkets", "execution-bin"]
 
 [workspace.package]
 edition = "2021"
