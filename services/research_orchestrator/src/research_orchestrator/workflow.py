@@ -245,6 +245,7 @@ async def hypothesize(
     wiki_writer: Callable[..., Path] | None = None,
     tick_source_factory: Callable[[str], TickSource] | None = None,
     time_range: tuple[datetime, datetime] | None = None,
+    spec_source_sink: Callable[[StrategySpec, str], None] | None = None,
 ) -> CycleReport:
     """Full agentic hypothesis generation cycle.
 
@@ -354,6 +355,7 @@ async def hypothesize(
             wiki_writer=wiki_writer,
             tick_source_factory=tick_source_factory,
             time_range=time_range,
+            spec_source_sink=spec_source_sink,
         )
         if outcome is None:
             # BudgetExceeded mid-loop — abort with outcomes so far
@@ -414,6 +416,7 @@ async def _process_spec(
     wiki_writer: Callable[..., Path] | None,
     tick_source_factory: Callable[[str], TickSource] | None,
     time_range: tuple[datetime, datetime],
+    spec_source_sink: Callable[[StrategySpec, str], None] | None = None,
 ) -> tuple[float, SpecOutcome] | None:
     """Process a single spec through all pipeline stages.
 
@@ -431,6 +434,10 @@ async def _process_spec(
         return None  # signal abort
 
     codegen_spend = _spend_delta(spend_tracker, spend_before_codegen)
+
+    # Optional sink: notify caller of generated source (used by CLI dry-run).
+    if spec_source_sink is not None:
+        spec_source_sink(spec, source)
 
     # ------------------------------------------------------------------
     # Step 3b: AST validation

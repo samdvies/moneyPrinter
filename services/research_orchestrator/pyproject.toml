@@ -17,6 +17,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_orchestrator"]
 
+[project.scripts]
+orchestrator = "research_orchestrator.__main__:app"
+
 [tool.uv.sources]
 algobet-common = { workspace = true }
 backtest-engine = { workspace = true }
