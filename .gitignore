@@ -58,3 +58,6 @@ logs/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# Runtime data (SQLite spend DB, etc.)
+var/research_orchestrator/
