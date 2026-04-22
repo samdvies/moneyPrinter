@@ -29,6 +29,22 @@ services:
       timeout: 3s
       retries: 10
 
+  execution:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["execution-bin"]
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379
+      VENUE: mock
+      EXECUTION_CONSUMER_NAME: execution-mock-1
+      MAX_TRACKED_ORDERS: 10000
+      SHUTDOWN_DRAIN_SECONDS: 30
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # Uncomment to run the simulator as a managed container:
   # simulator:
   #   build:

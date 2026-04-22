@@ -17,6 +17,8 @@ pub struct PendingSignal {
     pub entry_id: String,
     /// Parsed order payload.
     pub order: OrderRequest,
+    /// Raw JSON payload used for dead-letter forwarding on downstream validation failures.
+    pub raw_json: String,
 }
 
 /// Thin wrapper around fred for stream operations.
@@ -84,7 +86,11 @@ impl Bus {
             for (entry_id, field_map) in entries {
                 if let Some(raw_json) = field_map.get("json") {
                     match serde_json::from_str::<OrderRequest>(raw_json) {
-                        Ok(order) => out.push(PendingSignal { entry_id, order }),
+                        Ok(order) => out.push(PendingSignal {
+                            entry_id,
+                            order,
+                            raw_json: raw_json.clone(),
+                        }),
                         Err(_err) => {
                             // leave malformed handling to caller via dead-letter path
                         }

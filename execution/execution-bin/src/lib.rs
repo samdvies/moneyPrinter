@@ -55,7 +55,7 @@ pub async fn run() -> Result<()> {
     info!(?config.venue, "starting execution-bin");
 
     let venue = build_venue(&config)?;
-    let bus = Bus::connect(&config.redis_url).await?;
+    let bus = Arc::new(Bus::connect(&config.redis_url).await?);
     bus.ensure_group("execution").await?;
 
     let tracker = LifecycleTracker::new(config.max_tracked_orders);
