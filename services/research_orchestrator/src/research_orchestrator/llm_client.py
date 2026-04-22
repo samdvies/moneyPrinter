@@ -292,6 +292,23 @@ def _estimate_input_tokens(prompt: str) -> int:
     return max(1, len(prompt) // 4)
 
 
+def _strip_code_fence(content: str) -> str:
+    """Strip a surrounding markdown code fence if present.
+
+    Grok routinely wraps codegen output in ``` ```python ... ``` ``` fences.
+    The AST validator expects raw Python source, so unwrap the fence here.
+    Idempotent when no fence is present.
+    """
+    s = content.strip()
+    if not s.startswith("```"):
+        return content
+    lines = s.splitlines()
+    # Drop first line (``` or ```python) and last line if it is the closing fence.
+    if len(lines) >= 2 and lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1])
+    return "\n".join(lines[1:])
+
+
 # ---------------------------------------------------------------------------
 # LLMClient
 # ---------------------------------------------------------------------------
@@ -585,7 +602,7 @@ class LLMClient:
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
         )
-        return content
+        return _strip_code_fence(content)
 
     # ------------------------------------------------------------------
     # Internal: prompt builders

@@ -404,3 +404,20 @@ def test_cassette_missing_choices_raises(tmp_path: Path) -> None:
     client = _client(tmp_path, cassette_dir=bad_dir)
     with pytest.raises(LLMResponseInvalid):
         client.ideate(_sample_context(), cassette_name="no_choices")
+
+
+def test_strip_code_fence_removes_markdown_wrapper() -> None:
+    """Codegen output wrapped in a ```python ... ``` fence is unwrapped."""
+    from research_orchestrator.llm_client import _strip_code_fence
+
+    raw = "```python\ndef compute_signal(s, p):\n    return None\n```"
+    stripped = _strip_code_fence(raw)
+    assert stripped == "def compute_signal(s, p):\n    return None"
+
+
+def test_strip_code_fence_passthrough_when_no_fence() -> None:
+    """Plain Python source is returned unchanged."""
+    from research_orchestrator.llm_client import _strip_code_fence
+
+    raw = "def compute_signal(s, p):\n    return None\n"
+    assert _strip_code_fence(raw) == raw
