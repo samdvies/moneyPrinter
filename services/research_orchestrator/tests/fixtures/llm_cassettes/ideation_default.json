@@ -1,0 +1,21 @@
+{
+  "name": "ideation_default",
+  "request": {
+    "model": "grok-4",
+    "system": "You are an algorithmic trading strategy researcher...",
+    "user": "Generate 4 trading strategy hypotheses for Betfair Exchange."
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "{\"hypotheses\": [{\"name\": \"bollinger_reversion\", \"rationale\": \"Prices on liquid Betfair markets tend to revert to a rolling mean after transient order-flow imbalances. A Bollinger-band signal captures this mean-reversion regime without requiring external data.\", \"signal_formula\": \"z = (mid - mean(mid, window)) / std(mid, window); signal = -z when abs(z) > threshold\", \"params\": {\"window\": {\"kind\": \"int\", \"low\": 10, \"high\": 100, \"default\": 20}, \"threshold\": {\"kind\": \"float\", \"low\": 1.0, \"high\": 3.0, \"default\": 2.0}}, \"entry_rules\": \"Enter when z-score exceeds threshold in either direction; bet against the direction of the deviation.\", \"exit_rules\": \"Exit when z-score reverts to within 0.5 standard deviations of the mean.\", \"expected_edge\": \"Short-term mean-reversion in illiquid ticks driven by noise traders.\"}, {\"name\": \"microprice_drift\", \"rationale\": \"The microprice (volume-weighted mid) leads the true mid on Betfair when book imbalance is persistent. A short lookback drift signal on microprice should capture directional momentum.\", \"signal_formula\": \"microprice = (best_ask * best_bid_depth + best_bid * best_ask_depth) / (best_bid_depth + best_ask_depth); drift = microprice - mean(microprice, window)\", \"params\": {\"window\": {\"kind\": \"int\", \"low\": 5, \"high\": 50, \"default\": 10}, \"drift_threshold\": {\"kind\": \"float\", \"low\": 0.0001, \"high\": 0.01, \"default\": 0.001}}, \"entry_rules\": \"Enter in the direction of drift when abs(drift) > drift_threshold.\", \"exit_rules\": \"Exit after hold_ticks ticks or when drift reverses sign.\", \"expected_edge\": \"Informed order-flow imbalance creates short-lived directional momentum.\"}, {\"name\": \"spread_capture\", \"rationale\": \"When the bid-ask spread is abnormally wide relative to recent history, passive limit orders at the best quotes earn the spread as the market reverts.\", \"signal_formula\": \"relative_spread = (best_ask - best_bid) / mid; signal = 1 when relative_spread > mean(relative_spread, window) + k * std(relative_spread, window)\", \"params\": {\"window\": {\"kind\": \"int\", \"low\": 10, \"high\": 200, \"default\": 50}, \"k\": {\"kind\": \"float\", \"low\": 0.5, \"high\": 3.0, \"default\": 1.5}}, \"entry_rules\": \"Post passive orders on both sides of the book when relative spread is wide.\", \"exit_rules\": \"Cancel unfilled orders when spread normalises.\", \"expected_edge\": \"Wide spreads attract passive market-making; earn spread as market normalises.\"}, {\"name\": \"book_imbalance_fade\", \"rationale\": \"Extreme book imbalance (one side overwhelms the other) often precedes a short-term price reversal as the imbalance resolves.\", \"signal_formula\": \"imbalance = (best_bid_depth - best_ask_depth) / (best_bid_depth + best_ask_depth); fade when abs(imbalance) > threshold\", \"params\": {\"threshold\": {\"kind\": \"float\", \"low\": 0.3, \"high\": 0.9, \"default\": 0.7}, \"hold_ticks\": {\"kind\": \"int\", \"low\": 1, \"high\": 20, \"default\": 5}}, \"entry_rules\": \"Fade the imbalance direction when abs(imbalance) exceeds threshold.\", \"exit_rules\": \"Exit after hold_ticks or when imbalance drops below 0.2.\", \"expected_edge\": \"Order-book imbalance at extreme values has short-lived predictive power.\"}]}"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1234,
+      "completion_tokens": 567
+    }
+  }
+}

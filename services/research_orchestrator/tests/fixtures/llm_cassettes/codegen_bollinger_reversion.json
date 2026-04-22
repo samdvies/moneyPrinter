@@ -1,0 +1,21 @@
+{
+  "name": "codegen_bollinger_reversion",
+  "request": {
+    "model": "grok-4-fast-reasoning",
+    "system": "You are a Python trading strategy code generator...",
+    "user": "Generate code for strategy: bollinger_reversion"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "import math\n\ndef compute_signal(snapshot, params):\n    window = params.get(\"window\", 20)\n    threshold = params.get(\"threshold\", 2.0)\n    history = snapshot.get(\"mid_history\", [])\n    if len(history) < window:\n        return None\n    recent = history[-window:]\n    n = len(recent)\n    mean_val = sum(recent) / n\n    variance = sum((x - mean_val) ** 2 for x in recent) / n\n    std_val = math.sqrt(variance) if variance > 0.0 else 0.0\n    if std_val == 0.0:\n        return None\n    mid = snapshot.get(\"mid\", 0.0)\n    z = (mid - mean_val) / std_val\n    if z > threshold:\n        return -1.0\n    if z < -threshold:\n        return 1.0\n    return None\n"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 800,
+      "completion_tokens": 200
+    }
+  }
+}

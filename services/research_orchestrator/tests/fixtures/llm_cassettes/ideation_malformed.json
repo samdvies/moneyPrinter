@@ -1,0 +1,21 @@
+{
+  "name": "ideation_malformed",
+  "request": {
+    "model": "grok-4",
+    "system": "You are an algorithmic trading strategy researcher...",
+    "user": "Generate 4 trading strategy hypotheses."
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "this is not valid json {"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 100,
+      "completion_tokens": 10
+    }
+  }
+}

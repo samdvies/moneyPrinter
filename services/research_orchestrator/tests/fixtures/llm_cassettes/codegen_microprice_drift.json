@@ -1,0 +1,21 @@
+{
+  "name": "codegen_microprice_drift",
+  "request": {
+    "model": "grok-4-fast-reasoning",
+    "system": "You are a Python trading strategy code generator...",
+    "user": "Generate code for strategy: microprice_drift"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "def compute_signal(snapshot, params):\n    window = params.get(\"window\", 10)\n    drift_threshold = params.get(\"drift_threshold\", 0.001)\n    best_bid = snapshot.get(\"best_bid\", 0.0)\n    best_ask = snapshot.get(\"best_ask\", 0.0)\n    bid_depth = snapshot.get(\"best_bid_depth\", 1.0)\n    ask_depth = snapshot.get(\"best_ask_depth\", 1.0)\n    total_depth = bid_depth + ask_depth\n    if total_depth == 0.0:\n        return None\n    microprice = (best_ask * bid_depth + best_bid * ask_depth) / total_depth\n    history = snapshot.get(\"microprice_history\", [])\n    if len(history) < window:\n        return None\n    mean_mp = sum(history[-window:]) / window\n    drift = microprice - mean_mp\n    if drift > drift_threshold:\n        return 1.0\n    if drift < -drift_threshold:\n        return -1.0\n    return None\n"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 750,
+      "completion_tokens": 180
+    }
+  }
+}

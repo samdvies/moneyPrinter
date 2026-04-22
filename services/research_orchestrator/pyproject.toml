@@ -7,6 +7,7 @@ dependencies = [
     "backtest-engine",
     "strategy-registry",
     "typer>=0.12",
+    "openai>=1.54",
 ]
 
 [build-system]
