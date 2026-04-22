@@ -35,9 +35,11 @@ code, never the primary defence.
 from __future__ import annotations
 
 import builtins
+import hashlib
+import json
 import logging
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -205,6 +207,19 @@ def _spend_delta(tracker: SpendTracker, before: float) -> float:
     return max(0.0, tracker.cumulative_today_usd() - before)
 
 
+def _spec_sha256(spec: StrategySpec) -> str:
+    """Return hex SHA-256 of ``spec`` serialised as JSON with sorted keys."""
+    from dataclasses import asdict
+
+    payload = json.dumps(asdict(spec), sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _code_sha256(source: str) -> str:
+    """Return hex SHA-256 of the strategy source string."""
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Internal: build a minimal sample snapshot for sandbox import check
 # ---------------------------------------------------------------------------
@@ -243,6 +258,7 @@ async def hypothesize(
     # Test-injection hooks (optional; real code can leave as None → defaults)
     backtest_runner: Callable[..., Awaitable[BacktestResult]] | None = None,
     wiki_writer: Callable[..., Path] | None = None,
+    wiki_root: Path | None = None,
     tick_source_factory: Callable[[str], TickSource] | None = None,
     time_range: tuple[datetime, datetime] | None = None,
     spec_source_sink: Callable[[StrategySpec, str], None] | None = None,
@@ -280,7 +296,16 @@ async def hypothesize(
         production ``run_backtest`` when ``None``.
     wiki_writer:
         Injected callable ``(spec, source, result) -> Path``; used by tests.
-        When ``None``, wiki writes are skipped.
+        When ``None`` and ``wiki_root`` is also ``None``, wiki writes are skipped.
+        Takes precedence over ``wiki_root`` if both are supplied.
+    wiki_root:
+        Convenience alternative to ``wiki_writer``.  When supplied and
+        ``wiki_writer`` is ``None``, a callable is auto-built that calls
+        ``wiki_writer_module.write_hypothesis`` with the two SHA-256 hashes
+        and the cycle_id.  After the per-spec loop,
+        ``wiki_writer_module.append_daily_log_section`` is called.
+        If ``wiki_root is None`` and ``wiki_writer is None``, both writes
+        are skipped.
     tick_source_factory:
         Injected ``(market_id: str) -> TickSource``; used by tests to supply
         deterministic synthetic ticks.  When ``None``, a dummy in-memory
@@ -307,6 +332,27 @@ async def hypothesize(
         from datetime import timedelta
 
         time_range = (now_utc - timedelta(hours=24), now_utc)
+
+    # Build wiki_writer from wiki_root when the caller supplied a root path
+    # but no explicit callable.  The explicit callable takes precedence.
+    effective_wiki_writer: Callable[..., Path] | None = wiki_writer
+    if effective_wiki_writer is None and wiki_root is not None:
+        from . import wiki_writer as _wiki_writer_mod
+
+        _root = wiki_root  # capture for closure
+
+        def _auto_wiki_writer(spec: StrategySpec, source: str, result: Mapping[str, Any]) -> Path:
+            return _wiki_writer_mod.write_hypothesis(
+                wiki_root=_root,
+                spec=spec,
+                source=source,
+                backtest_result=result,
+                cycle_id=cycle_id,
+                spec_sha256=_spec_sha256(spec),
+                code_sha256=_code_sha256(source),
+            )
+
+        effective_wiki_writer = _auto_wiki_writer
 
     # ------------------------------------------------------------------
     # Stage 1: build ideation context
@@ -352,7 +398,7 @@ async def hypothesize(
             spend_tracker=spend_tracker,
             settings=settings,
             effective_runner=effective_runner,
-            wiki_writer=wiki_writer,
+            wiki_writer=effective_wiki_writer,
             tick_source_factory=tick_source_factory,
             time_range=time_range,
             spec_source_sink=spec_source_sink,
@@ -377,9 +423,25 @@ async def hypothesize(
         outcomes.append(spec_outcome)
 
     # ------------------------------------------------------------------
-    # Return final report
+    # Daily log append (only when wiki_root supplied)
     # ------------------------------------------------------------------
     total = ideation_spend + codegen_spend_total
+    if wiki_root is not None:
+        from . import wiki_writer as _wiki_writer_mod
+
+        try:
+            _wiki_writer_mod.append_daily_log_section(
+                wiki_root=wiki_root,
+                cycle_id=cycle_id,
+                outcomes=outcomes,
+                total_spend_usd=total,
+            )
+        except Exception as exc:
+            logger.warning("hypothesize: daily-log append failed for cycle %s: %s", cycle_id, exc)
+
+    # ------------------------------------------------------------------
+    # Return final report
+    # ------------------------------------------------------------------
     report = CycleReport(
         cycle_id=cycle_id,
         outcomes=tuple(outcomes),

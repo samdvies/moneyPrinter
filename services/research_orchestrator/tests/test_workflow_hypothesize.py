@@ -26,6 +26,11 @@ Additional:
    abort_reason names spec 2.
 7. CycleReport.total_spend_usd == ideation_spend_usd + codegen_spend_usd.
 8. db=None and bus=None — cycle still completes with a CycleReport.
+
+Phase 6c Task 8 additions:
+9. wiki_root wiring — 4 proposed-strategy files + daily log written.
+10. Two cycles same day → daily log has 2 Hypothesis Cycle sections.
+11. Round-trip via strategy_registry.wiki_loader — no parse errors.
 """
 
 from __future__ import annotations
@@ -521,3 +526,181 @@ async def test_no_db_no_bus_cycle_completes(tmp_path: Path) -> None:
         # No DB → no strategy_id assigned, wiki_writer=None → no wiki path
         assert outcome.strategy_id is None
         assert outcome.wiki_path is None
+
+
+# ---------------------------------------------------------------------------
+# Task 8 Test 9: wiki_root wiring — proposed files + daily log
+# ---------------------------------------------------------------------------
+
+
+async def test_cycle_writes_proposed_strategy_files_and_daily_log(tmp_path: Path) -> None:
+    """wiki_root kwarg causes 4 proposed-strategy files and 1 daily-log file to be written.
+
+    Frontmatter of each proposed file must contain all required 6b + 6c keys,
+    and the filename stem must match the spec name.
+    """
+    import yaml
+
+    settings = _make_settings(tmp_path)
+    tracker = _make_spend_tracker(tmp_path)
+    llm_client = _make_llm_client(settings, tracker)
+    context_builder = _make_context_builder()
+    wiki_root = tmp_path / "wiki"
+
+    with patch("research_orchestrator.workflow.run_in_sandbox", return_value=_SANDBOX_OK):
+        report: CycleReport = await hypothesize(
+            "cycle-009",
+            llm_client=llm_client,
+            spend_tracker=tracker,
+            context_builder=context_builder,
+            settings=settings,
+            backtest_runner=_fake_backtest_runner,
+            wiki_root=wiki_root,
+            tick_source_factory=_tick_source_factory,
+            time_range=_TIME_RANGE,
+        )
+
+    assert not report.aborted, f"cycle aborted: {report.abort_reason}"
+    assert len(report.outcomes) == 4
+
+    # 4 proposed-strategy files
+    proposed_dir = wiki_root / "30-Strategies" / "proposed"
+    assert proposed_dir.is_dir(), "proposed/ directory not created"
+    proposed_files = list(proposed_dir.glob("*.md"))
+    assert (
+        len(proposed_files) == 4
+    ), f"expected 4 files, got {len(proposed_files)}: {proposed_files}"
+
+    # 1 daily log file
+    daily_dir = wiki_root / "70-Daily"
+    daily_files = list(daily_dir.glob("*.md"))
+    assert len(daily_files) == 1, f"expected 1 daily log, got {len(daily_files)}: {daily_files}"
+
+    # Check frontmatter of each proposed file
+    required_6b_keys = {"title", "strategy-id", "venue", "module", "parameters"}
+    required_6c_keys = {"generated_by", "cycle_id", "spec_sha256", "code_sha256"}
+    required_keys = required_6b_keys | required_6c_keys
+
+    for md_file in proposed_files:
+        text = md_file.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        assert lines[0].strip() == "---", f"{md_file.name}: missing opening fence"
+        close = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+        fm = yaml.safe_load("\n".join(lines[1:close]))
+        assert isinstance(fm, dict), f"{md_file.name}: frontmatter not a dict"
+
+        missing = required_keys - set(fm.keys())
+        assert not missing, f"{md_file.name}: missing frontmatter keys {sorted(missing)}"
+
+        # Filename stem must match strategy-id
+        assert (
+            md_file.stem == fm["strategy-id"]
+        ), f"{md_file.name}: stem '{md_file.stem}' != strategy-id '{fm['strategy-id']}'"
+
+        # 6c fields must have non-empty values
+        assert fm["generated_by"] == "orchestrator-6c"
+        assert fm["cycle_id"] == "cycle-009"
+        assert len(fm["spec_sha256"]) == 64  # SHA-256 hex is 64 chars
+        assert len(fm["code_sha256"]) == 64
+
+
+# ---------------------------------------------------------------------------
+# Task 8 Test 10: two cycles same day → two daily-log sections
+# ---------------------------------------------------------------------------
+
+
+async def test_daily_log_appends_on_second_cycle_same_day(tmp_path: Path) -> None:
+    """Two cycles with the same wiki_root on the same date produce two
+    ``## Hypothesis Cycle`` sections in the daily log — not one overwritten."""
+    settings = _make_settings(tmp_path)
+    tracker = _make_spend_tracker(tmp_path)
+    llm_client = _make_llm_client(settings, tracker)
+    context_builder = _make_context_builder()
+    wiki_root = tmp_path / "wiki"
+
+    with patch("research_orchestrator.workflow.run_in_sandbox", return_value=_SANDBOX_OK):
+        await hypothesize(
+            "cycle-010a",
+            llm_client=llm_client,
+            spend_tracker=tracker,
+            context_builder=context_builder,
+            settings=settings,
+            backtest_runner=_fake_backtest_runner,
+            wiki_root=wiki_root,
+            tick_source_factory=_tick_source_factory,
+            time_range=_TIME_RANGE,
+        )
+        # Second cycle — fresh tracker to avoid budget issues
+        tracker2 = _make_spend_tracker(tmp_path / "tracker2")
+        llm_client2 = _make_llm_client(settings, tracker2)
+        await hypothesize(
+            "cycle-010b",
+            llm_client=llm_client2,
+            spend_tracker=tracker2,
+            context_builder=context_builder,
+            settings=settings,
+            backtest_runner=_fake_backtest_runner,
+            wiki_root=wiki_root,
+            tick_source_factory=_tick_source_factory,
+            time_range=_TIME_RANGE,
+        )
+
+    daily_files = list((wiki_root / "70-Daily").glob("*.md"))
+    assert len(daily_files) == 1, "expected exactly 1 daily log file"
+    content = daily_files[0].read_text(encoding="utf-8")
+
+    cycle_a_count = content.count("## Hypothesis Cycle cycle-010a")
+    cycle_b_count = content.count("## Hypothesis Cycle cycle-010b")
+    assert cycle_a_count == 1, f"cycle-010a section count={cycle_a_count}, expected 1"
+    assert cycle_b_count == 1, f"cycle-010b section count={cycle_b_count}, expected 1"
+
+
+# ---------------------------------------------------------------------------
+# Task 8 Test 11: round-trip via 6b loader
+# ---------------------------------------------------------------------------
+
+
+async def test_wiki_files_round_trip_via_6b_loader(tmp_path: Path) -> None:
+    """Proposed-strategy files written by write_hypothesis parse cleanly
+    via strategy_registry.wiki_loader._split_frontmatter + _parse_frontmatter
+    + _validate_keys (the shape-only subset, without the module import check).
+    """
+    from strategy_registry.wiki_loader import _parse_frontmatter, _split_frontmatter, _validate_keys
+
+    settings = _make_settings(tmp_path)
+    tracker = _make_spend_tracker(tmp_path)
+    llm_client = _make_llm_client(settings, tracker)
+    context_builder = _make_context_builder()
+    wiki_root = tmp_path / "wiki"
+
+    with patch("research_orchestrator.workflow.run_in_sandbox", return_value=_SANDBOX_OK):
+        report: CycleReport = await hypothesize(
+            "cycle-011",
+            llm_client=llm_client,
+            spend_tracker=tracker,
+            context_builder=context_builder,
+            settings=settings,
+            backtest_runner=_fake_backtest_runner,
+            wiki_root=wiki_root,
+            tick_source_factory=_tick_source_factory,
+            time_range=_TIME_RANGE,
+        )
+
+    assert not report.aborted
+
+    proposed_dir = wiki_root / "30-Strategies" / "proposed"
+    md_files = list(proposed_dir.glob("*.md"))
+    assert md_files, "no proposed files written"
+
+    for md_file in md_files:
+        text = md_file.read_text(encoding="utf-8")
+        # _split_frontmatter → _parse_frontmatter → _validate_keys must
+        # all succeed without raising StrategyLoadError.
+        raw_yaml = _split_frontmatter(text)
+        frontmatter = _parse_frontmatter(raw_yaml)
+        _validate_keys(frontmatter)  # raises StrategyLoadError if shape is wrong
+
+        # Additionally verify the strategy-id / filename invariant
+        assert (
+            frontmatter["strategy-id"] == md_file.stem
+        ), f"strategy-id '{frontmatter['strategy-id']}' != filename stem '{md_file.stem}'"
