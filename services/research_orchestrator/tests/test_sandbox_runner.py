@@ -217,7 +217,13 @@ def test_open_passwd_blocked() -> None:
 
 
 def test_dunder_import_os_blocked() -> None:
-    """__import__ is stripped from __builtins__; dynamic import of os fails."""
+    """Dynamic import of 'os' via __import__ is blocked in the sandbox.
+
+    Previously ``__import__`` was stripped from ``__builtins__`` entirely
+    (NameError); now a *restricted* ``__import__`` is provided that only
+    allows AST-whitelisted modules (math, statistics, dataclasses).  Either
+    way, importing ``os`` raises an error and the result is "error".
+    """
     result = run_in_sandbox(
         module_source=_read_fixture("adv_dunder_import_os.py"),
         entry_callable="run",
@@ -228,9 +234,20 @@ def test_dunder_import_os_blocked() -> None:
     )
     assert result.status == "error"
     assert result.error_repr is not None
+    # Accept both the old "NameError/__import__/not defined/builtin" message
+    # (if __import__ is stripped entirely) and the new restricted-import
+    # message ("not allowed", "whitelist", "ImportError").
     assert any(
         token in result.error_repr
-        for token in ("NameError", "__import__", "not defined", "builtin")
+        for token in (
+            "NameError",
+            "__import__",
+            "not defined",
+            "builtin",
+            "not allowed",
+            "whitelist",
+            "ImportError",
+        )
     )
 
 

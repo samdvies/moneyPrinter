@@ -16,7 +16,7 @@ mutate the dict after construction.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -98,3 +98,77 @@ class IdeationContext:
     features: tuple[str, ...]
     prior_cycles: str
     regime: str
+
+
+# ---------------------------------------------------------------------------
+# Cycle report types (Phase 6c Task 6)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SpecOutcome:
+    """Outcome record for a single strategy spec within a generation cycle.
+
+    Parameters
+    ----------
+    spec_name:
+        The ``StrategySpec.name`` this outcome describes.
+    stage:
+        The pipeline stage at which this outcome was decided.
+    status:
+        ``"passed"`` when the spec advanced past this stage successfully;
+        ``"failed"`` when a hard stop was hit.
+    reason:
+        Human-readable explanation for failures; ``None`` on success.
+    strategy_id:
+        Registry UUID string, populated when ``stage == "persisted"``.
+    wiki_path:
+        Absolute path to the written wiki file, populated on persist.
+    backtest_summary:
+        JSON-safe summary dict extracted from ``BacktestResult`` on success;
+        ``None`` for failed outcomes.
+    """
+
+    spec_name: str
+    stage: Literal["ideation", "codegen", "validation", "sandbox", "backtest", "persisted"]
+    status: Literal["passed", "failed"]
+    reason: str | None
+    strategy_id: str | None
+    wiki_path: str | None
+    backtest_summary: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class CycleReport:
+    """Summary of a complete (or aborted) hypothesis generation cycle.
+
+    Parameters
+    ----------
+    cycle_id:
+        The caller-supplied cycle identifier.
+    outcomes:
+        One :class:`SpecOutcome` per spec that was processed.  For an
+        aborted cycle, this may be empty or contain partial results from
+        specs processed before the abort.
+    ideation_spend_usd:
+        USD spent on the ideation call.
+    codegen_spend_usd:
+        Total USD spent on all codegen calls in this cycle.
+    total_spend_usd:
+        ``ideation_spend_usd + codegen_spend_usd``.  Asserted equal in
+        tests.
+    aborted:
+        ``True`` when the cycle was cut short before all specs were
+        processed (e.g. ``BudgetExceeded`` during ideation).
+    abort_reason:
+        Human-readable reason for the abort; ``None`` when
+        ``aborted == False``.
+    """
+
+    cycle_id: str
+    outcomes: tuple[SpecOutcome, ...]
+    ideation_spend_usd: float
+    codegen_spend_usd: float
+    total_spend_usd: float
+    aborted: bool
+    abort_reason: str | None

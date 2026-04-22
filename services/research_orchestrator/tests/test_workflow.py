@@ -8,12 +8,18 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from backtest_engine.strategy_protocol import StrategyModule, TickSource
+from research_orchestrator.config import OrchestratorSettings
+from research_orchestrator.context_builder import ContextBuilder
 from research_orchestrator.errors import OrchestratorError
+from research_orchestrator.llm_client import BudgetExceeded, LLMClient
+from research_orchestrator.spend_tracker import SpendTracker
+from research_orchestrator.types import CycleReport
 from research_orchestrator.workflow import (
     hypothesize,
     promote,
@@ -23,17 +29,42 @@ from strategy_registry.models import Status, Strategy
 
 pytestmark = pytest.mark.unit
 
+_CASSETTE_DIR = Path(__file__).parent / "fixtures" / "llm_cassettes"
+
 
 # ---------------------------------------------------------------------------
-# hypothesize
+# hypothesize — smoke test (budget-exceeded abort path, no subprocess needed)
 # ---------------------------------------------------------------------------
 
 
-async def test_hypothesize_returns_stub() -> None:
-    result = await hypothesize()
-    assert "name" in result
-    assert "description" in result
-    assert "venue" in result
+async def test_hypothesize_budget_exceeded_aborts(tmp_path: Path) -> None:
+    """hypothesize() with a budget-exceeded ideation returns an aborted CycleReport."""
+    settings = OrchestratorSettings(
+        xai_api_key="mock",
+        xai_cassette_dir=_CASSETTE_DIR,
+    )
+    tracker = SpendTracker(db_path=tmp_path / "spend.db")
+    llm_client = LLMClient(settings=settings, spend_tracker=tracker)
+    context_builder = ContextBuilder(registry_repo=None, timescale_query=None)
+
+    def _raise_budget(*args: Any, **kwargs: Any) -> None:
+        raise BudgetExceeded(estimated_usd=1.0, cap_usd=0.5, cumulative_usd=0.4)
+
+    start = datetime(2026, 4, 1, tzinfo=UTC)
+    with patch.object(llm_client, "ideate", side_effect=_raise_budget):
+        report: CycleReport = await hypothesize(
+            "smoke-cycle",
+            llm_client=llm_client,
+            spend_tracker=tracker,
+            context_builder=context_builder,
+            settings=settings,
+            time_range=(start, start + timedelta(hours=1)),
+        )
+
+    assert report.aborted
+    assert report.abort_reason is not None
+    assert "budget exceeded" in report.abort_reason.lower()
+    assert isinstance(report, CycleReport)
 
 
 # ---------------------------------------------------------------------------

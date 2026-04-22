@@ -1,0 +1,21 @@
+{
+  "name": "codegen_spread_capture",
+  "request": {
+    "model": "grok-4-fast-reasoning",
+    "system": "You are a Python trading strategy code generator...",
+    "user": "Generate code for strategy: spread_capture"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "def compute_signal(snapshot, params):\n    window = params.get(\"window\", 50)\n    k = params.get(\"k\", 1.5)\n    best_bid = snapshot.get(\"best_bid\", 0.0)\n    best_ask = snapshot.get(\"best_ask\", 0.0)\n    if best_ask <= 0.0 or best_bid <= 0.0:\n        return None\n    mid = (best_bid + best_ask) / 2.0\n    if mid == 0.0:\n        return None\n    spread = (best_ask - best_bid) / mid\n    history = snapshot.get(\"spread_history\", [])\n    if len(history) < window:\n        return None\n    recent = history[-window:]\n    n = len(recent)\n    mean_s = sum(recent) / n\n    variance = sum((x - mean_s) ** 2 for x in recent) / n\n    std_s = variance ** 0.5 if variance > 0.0 else 0.0\n    if std_s == 0.0:\n        return None\n    if spread > mean_s + k * std_s:\n        return 1.0\n    return None\n"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 820,
+      "completion_tokens": 210
+    }
+  }
+}

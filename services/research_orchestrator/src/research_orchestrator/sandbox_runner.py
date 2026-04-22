@@ -185,7 +185,42 @@ def _sandbox_child_main(
     # ------------------------------------------------------------------
     try:
         code = compile(source, "<sandbox>", "exec")
-        module_ns: dict[str, Any] = {"__builtins__": stripped}
+        # Pre-inject whitelisted stdlib modules AND a restricted __import__
+        # so that generated code using ``import math`` / ``import statistics``
+        # / ``import dataclasses`` (AST-whitelisted) can run correctly.
+        # The real __import__ is captured BEFORE being stripped from builtins.
+        # All other modules are blocked immediately — belt-and-braces on top
+        # of the AST validator that already blocks their import statements.
+        import dataclasses as _dc
+        import math as _math
+        import statistics as _stats
+
+        _SANDBOX_ALLOWED_IMPORTS = frozenset({"math", "statistics", "dataclasses"})
+        # Capture the real __import__ from builtins BEFORE building stripped.
+        # ``raw_builtins`` still has it at this point; stripped has it removed.
+        _real_import = raw_builtins["__import__"]
+
+        def _restricted_import(
+            name: str,
+            glb: Any = None,
+            loc: Any = None,
+            fromlist: Any = (),
+            level: int = 0,
+        ) -> Any:
+            top_level = name.split(".")[0]
+            if top_level not in _SANDBOX_ALLOWED_IMPORTS:
+                raise ImportError(f"sandbox: import of '{name}' is not allowed (not in whitelist)")
+            return _real_import(name, glb, loc, fromlist, level)
+
+        restricted_builtins = dict(stripped)
+        restricted_builtins["__import__"] = _restricted_import
+
+        module_ns: dict[str, Any] = {
+            "__builtins__": restricted_builtins,
+            "math": _math,
+            "statistics": _stats,
+            "dataclasses": _dc,
+        }
         exec(code, module_ns)
 
         if entry not in module_ns:

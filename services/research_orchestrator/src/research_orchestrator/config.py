@@ -88,3 +88,36 @@ class OrchestratorSettings(BaseSettings):
             "Production code never hits mock mode because xai_api_key != 'mock'."
         ),
     )
+
+    # ------------------------------------------------------------------
+    # Hypothesis cycle parameters
+    # ------------------------------------------------------------------
+
+    hypothesis_batch_size: int = Field(
+        default=4,
+        description="Number of strategy specs to generate per hypothesis cycle.",
+    )
+    hypothesis_prior_cycle_k: int = Field(
+        default=3,
+        description="Top-K and bottom-K prior strategies to include in ideation context.",
+    )
+    hypothesis_prior_cycle_n: int = Field(
+        default=10,
+        description="Maximum number of recent strategies to consider for prior-cycle context.",
+    )
+    hypothesis_sandbox_cpu_seconds: int = Field(
+        default=60,
+        description="CPU time limit (seconds) for the per-spec sandbox import check (Unix only).",
+    )
+    hypothesis_sandbox_mem_mb: int = Field(
+        default=1024,
+        description="Address-space limit (MiB) for the per-spec sandbox import check (Unix only).",
+    )
+    hypothesis_sandbox_wall_timeout_s: float = Field(
+        default=30.0,
+        description=(
+            "Wall-clock timeout (seconds) for the per-spec sandbox check.  "
+            "Shorter than cpu_seconds to guard infinite loops before the CPU "
+            "signal fires."
+        ),
+    )

@@ -1,0 +1,21 @@
+{
+  "name": "codegen_book_imbalance_fade",
+  "request": {
+    "model": "grok-4-fast-reasoning",
+    "system": "You are a Python trading strategy code generator...",
+    "user": "Generate code for strategy: book_imbalance_fade"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "content": "def compute_signal(snapshot, params):\n    threshold = params.get(\"threshold\", 0.7)\n    best_bid_depth = snapshot.get(\"best_bid_depth\", 0.0)\n    best_ask_depth = snapshot.get(\"best_ask_depth\", 0.0)\n    total_depth = best_bid_depth + best_ask_depth\n    if total_depth == 0.0:\n        return None\n    imbalance = (best_bid_depth - best_ask_depth) / total_depth\n    if imbalance > threshold:\n        return -1.0\n    if imbalance < -threshold:\n        return 1.0\n    return None\n"
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 780,
+      "completion_tokens": 160
+    }
+  }
+}
