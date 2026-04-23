@@ -3,19 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
+from algobet_common.parsing import parse_decimal
 from algobet_common.schemas import MarketData, Venue
-
-
-def _parse_decimal(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return None
 
 
 def _parse_timestamp(payload: dict[str, Any]) -> datetime:
@@ -42,8 +34,8 @@ def _normalize_ladder(levels: Any) -> list[tuple[Decimal, Decimal]]:
     for level in levels:
         if not isinstance(level, dict):
             continue
-        price = _parse_decimal(level.get("price"))
-        size = _parse_decimal(level.get("size"))
+        price = parse_decimal(level.get("price"))
+        size = parse_decimal(level.get("size"))
         if price is None or size is None:
             continue
         normalized.append((price, size))
@@ -63,7 +55,7 @@ def kalshi_message_to_market_data(payload: dict[str, Any]) -> MarketData | None:
     asks = _normalize_ladder(payload.get("asks"))
     last_trade = None
     for key in ("last_trade", "last_trade_price", "last_price", "price"):
-        last_trade = _parse_decimal(payload.get(key))
+        last_trade = parse_decimal(payload.get(key))
         if last_trade is not None:
             break
 

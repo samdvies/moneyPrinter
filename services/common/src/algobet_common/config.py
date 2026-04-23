@@ -61,6 +61,20 @@ class Settings(BaseSettings):
         default="demo", description="Kalshi environment selector (for example: demo, prod)."
     )
 
+    # Polymarket — read-only Gamma polling. No credentials. VPN egress required.
+    polymarket_gamma_base_url: str = Field(
+        default="https://gamma-api.polymarket.com",
+        description="Base URL for Polymarket Gamma REST API.",
+    )
+    polymarket_poll_interval_seconds: float = Field(
+        default=5.0,
+        description="Seconds between full Gamma active-market sweeps.",
+    )
+    polymarket_page_size: int = Field(
+        default=500,
+        description="limit= parameter for paginated Gamma /markets requests.",
+    )
+
     # Risk manager settings — safe defaults leave existing services unaffected.
     risk_max_strategy_exposure_gbp: Decimal = Decimal("1000")
     risk_max_signal_liability_gbp: Decimal = Decimal("1000")

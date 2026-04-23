@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class Venue(StrEnum):
     BETFAIR = "betfair"
     KALSHI = "kalshi"
+    POLYMARKET = "polymarket"
 
 
 class OrderSide(StrEnum):
@@ -47,6 +48,7 @@ class OrderSignal(_BaseMessage):
     stake: Decimal = Field(gt=0)
     price: Decimal = Field(gt=0)
     selection_id: str | None = Field(default=None)
+    client_order_id: str | None = Field(default=None)
 
 
 class ExecutionResult(_BaseMessage):
@@ -57,6 +59,7 @@ class ExecutionResult(_BaseMessage):
     filled_stake: Decimal = Decimal("0")
     filled_price: Decimal | None = None
     timestamp: datetime
+    reason: str | None = None
 
 
 class RiskAlert(_BaseMessage):

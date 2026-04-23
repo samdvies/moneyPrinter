@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 def test_load_migrations_returns_sorted_by_version() -> None:
     migrations_dir = Path("scripts/db/migrations")
     migrations = load_migrations(migrations_dir)
-    assert [m.version for m in migrations] == ["0001", "0002", "0003", "0004", "0005"]
+    assert [m.version for m in migrations] == ["0001", "0002", "0003", "0004", "0005", "0006"]
     assert "timescaledb" in migrations[0].sql.lower()
 
 
@@ -33,7 +33,7 @@ async def test_apply_migrations_creates_strategies_table(postgres_dsn: str) -> N
         assert row["tbl"] == "strategies"
 
         versions = await conn.fetch("SELECT version FROM schema_migrations ORDER BY version")
-        assert [r["version"] for r in versions] == ["0001", "0002", "0003", "0004", "0005"]
+        assert [r["version"] for r in versions] == ["0001", "0002", "0003", "0004", "0005", "0006"]
     finally:
         await conn.close()
 

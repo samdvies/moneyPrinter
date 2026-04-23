@@ -13,7 +13,7 @@ from algobet_common.config import Settings
 from algobet_common.schemas import OrderSide, OrderSignal, Venue
 from strategy_registry.models import LiabilityComponents
 
-_KNOWN_VENUES = {Venue.BETFAIR, Venue.KALSHI}
+_KNOWN_VENUES = {Venue.BETFAIR, Venue.KALSHI, Venue.POLYMARKET}
 
 
 @dataclass

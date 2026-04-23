@@ -13,6 +13,7 @@ members = [
     "risk-manager",
     "simulator",
     "strategy-registry",
+    "strategy-runner",
 ]
 
 [[package]]
@@ -28,6 +29,7 @@ dependencies = [
     { name = "risk-manager" },
     { name = "simulator" },
     { name = "strategy-registry" },
+    { name = "strategy-runner" },
 ]
 
 [package.dev-dependencies]
@@ -50,6 +52,7 @@ requires-dist = [
     { name = "risk-manager", editable = "services/risk_manager" },
     { name = "simulator", editable = "services/simulator" },
     { name = "strategy-registry", editable = "services/strategy_registry" },
+    { name = "strategy-runner", editable = "services/strategy_runner" },
 ]
 
 [package.metadata.requires-dev]
@@ -1149,6 +1152,23 @@ dependencies = [
 requires-dist = [
     { name = "algobet-common", editable = "services/common" },
     { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
+name = "strategy-runner"
+version = "0.0.1"
+source = { editable = "services/strategy_runner" }
+dependencies = [
+    { name = "algobet-common" },
+    { name = "backtest-engine" },
+    { name = "strategy-registry" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "algobet-common", editable = "services/common" },
+    { name = "backtest-engine", editable = "services/backtest_engine" },
+    { name = "strategy-registry", editable = "services/strategy_registry" },
 ]
 
 [[package]]

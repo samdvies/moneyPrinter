@@ -14,6 +14,7 @@ from ingestion.betfair_adapter import (
     IngestionCredentialsError,
     run_betfair_stream_loop,
 )
+from ingestion.polymarket_adapter import run_polymarket_poll_loop
 
 
 async def publish_synthetic_tick(bus: BusClient, market_id: str = "scaffold.001") -> None:
@@ -38,8 +39,19 @@ async def run_ingestion_mode(*, bus: BusClient, settings: Settings) -> None:
         await publish_synthetic_tick(bus=bus)
         return
 
+    if mode == "polymarket":
+        await run_polymarket_poll_loop(
+            bus=bus,
+            gamma_base_url=settings.polymarket_gamma_base_url,
+            poll_interval_seconds=settings.polymarket_poll_interval_seconds,
+            page_size=settings.polymarket_page_size,
+        )
+        return
+
     if mode != "betfair":
-        raise IngestionCredentialsError("INGESTION_MODE must be one of: betfair, synthetic.")
+        raise IngestionCredentialsError(
+            "INGESTION_MODE must be one of: betfair, polymarket, synthetic."
+        )
 
     # TODO(CLAUDE.md Ground Rules): paper trading API must match live execution API
     # exactly so strategies remain mode-agnostic and promotion stays config-only.
