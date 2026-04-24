@@ -60,6 +60,15 @@ def generate_splits(
     return out
 
 
+def run_strategy_metrics(
+    strategy_on_tick: Callable[[MarketData, dict[str, Any], datetime], OrderSignal | None],
+    ticks: list[MarketData],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """Run ``strategy_on_tick`` over ``ticks`` and return harness-shaped metrics."""
+    return _replay_ticks(strategy_on_tick, ticks, params)
+
+
 def _replay_ticks(
     strategy_on_tick: Callable[[MarketData, dict[str, Any], datetime], OrderSignal | None],
     ticks: list[MarketData],
