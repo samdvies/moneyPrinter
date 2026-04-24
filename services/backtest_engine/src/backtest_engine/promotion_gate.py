@@ -83,11 +83,28 @@ def check_promotion_criteria(report: Any, thresholds: dict[str, float]) -> tuple
 
     raw_rb = sig.get("random_baseline")
     rb = raw_rb if isinstance(raw_rb, dict) else {}
-    p_sh = float(rb.get("p_value_sharpe", sig.get("p_value_sharpe", 1.0)))
-    if p_sh == 1.0 and isinstance(sig.get("t_test"), dict):
-        p_sh = float(sig["t_test"].get("p_value", 1.0))
-    if p_sh > thresholds["p_value_sharpe"]:
-        reasons.append(f"p_value_sharpe {p_sh:.4f} above alpha {thresholds['p_value_sharpe']}")
+    p_source = "random_baseline"
+    p_sh_raw: Any = rb.get("p_value_sharpe", sig.get("p_value_sharpe"))
+    if p_sh_raw is None and isinstance(sig.get("t_test"), dict):
+        p_sh_raw = sig["t_test"].get("p_value")
+        p_source = "t_test"
+    if p_sh_raw is None:
+        reasons.append(
+            "p_value_sharpe unavailable (insufficient trades for random-baseline "
+            "or degenerate t-test)"
+        )
+    else:
+        try:
+            p_sh = float(p_sh_raw)
+        except (TypeError, ValueError):
+            p_sh = float("nan")
+        if not math.isfinite(p_sh):
+            reasons.append(
+                f"p_value_sharpe from {p_source} is non-finite "
+                f"({p_sh_raw!r}); gate cannot assess significance"
+            )
+        elif p_sh > thresholds["p_value_sharpe"]:
+            reasons.append(f"p_value_sharpe {p_sh:.4f} above alpha {thresholds['p_value_sharpe']}")
 
     deg = float(wf.get("degradation_ratio", 0.0))
     if math.isfinite(deg) and deg < thresholds["walkforward_degradation"]:

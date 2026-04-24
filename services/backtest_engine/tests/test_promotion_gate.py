@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,45 @@ def test_failing_multiple() -> None:
     ok, reasons = check_promotion_criteria(r, th)
     assert not ok
     assert len(reasons) >= 2
+
+
+def test_nan_p_value_fails_explicitly() -> None:
+    """A NaN p-value (e.g. flat equity curve → degenerate t-test) must not silently
+    bypass the significance check. It must surface as an explicit failure reason."""
+    th = {
+        "sharpe": 0.5,
+        "max_dd_pct": -20.0,
+        "hit_rate": 0.45,
+        "p_value_sharpe": 0.05,
+        "walkforward_degradation": 0.5,
+    }
+    # no random_baseline (insufficient trades), t_test returns NaN
+    r = _report(
+        metrics={"sharpe": 1.0, "hit_rate": 0.5, "max_drawdown": {"depth_pct": -0.1}},
+        significance={"t_test": {"p_value": math.nan}},
+    )
+    ok, reasons = check_promotion_criteria(r, th)
+    assert not ok
+    assert any("non-finite" in x or "unavailable" in x for x in reasons)
+
+
+def test_missing_p_value_fails_explicitly() -> None:
+    """Report with no random_baseline and no t_test at all must fail, not silently
+    skip the p-value check."""
+    th = {
+        "sharpe": 0.5,
+        "max_dd_pct": -20.0,
+        "hit_rate": 0.45,
+        "p_value_sharpe": 0.05,
+        "walkforward_degradation": 0.5,
+    }
+    r = _report(
+        metrics={"sharpe": 1.0, "hit_rate": 0.5, "max_drawdown": {"depth_pct": -0.1}},
+        significance={},
+    )
+    ok, reasons = check_promotion_criteria(r, th)
+    assert not ok
+    assert any("unavailable" in x for x in reasons)
 
 
 def test_load_thresholds_from_fixture_wiki(tmp_path: Path) -> None:

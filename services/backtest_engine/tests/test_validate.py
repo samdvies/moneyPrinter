@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -74,6 +75,45 @@ def test_deterministic_numeric_outputs(monkeypatch: pytest.MonkeyPatch, tmp_path
     )
     for key in ("sharpe", "hit_rate", "expectancy"):
         assert np.isclose(float(a.metrics[key]), float(b.metrics[key]))
+
+
+def test_byte_identical_artifacts_with_pinned_run_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Per plan: same seed + pinned run_id/run_ts → byte-identical metrics.json."""
+    _minimal_wiki(tmp_path)
+    monkeypatch.setattr(validate_mod, "_repo_root", lambda: tmp_path)
+    pinned_run_id = "00000000-0000-0000-0000-000000000001"
+    pinned_run_ts = datetime(2026, 4, 24, 12, 0, 0, tzinfo=UTC)
+
+    def run_once(subdir: str) -> bytes:
+        monkeypatch.setattr(
+            validate_mod,
+            "_repo_root",
+            lambda: tmp_path / subdir,
+        )
+        validate_mod.validate_strategy(
+            "polymarket-yes-mean-revert",
+            n_synthetic_ticks=500,
+            param_sweep=False,
+            walkforward_splits=2,
+            seed=123,
+            run_id=pinned_run_id,
+            run_ts=pinned_run_ts,
+        )
+        art = tmp_path / subdir / "artifacts" / "backtests" / "polymarket-yes-mean-revert"
+        return next(art.iterdir()).joinpath("metrics.json").read_bytes()
+
+    # need the wiki in both subdirs because _repo_root is swapped per call
+    src_wiki = (tmp_path / "wiki" / "30-Strategies" / "polymarket-yes-mean-revert.md").read_text(
+        encoding="utf-8"
+    )
+    for sub in ("run_a", "run_b"):
+        wiki = tmp_path / sub / "wiki" / "30-Strategies" / "polymarket-yes-mean-revert.md"
+        wiki.parent.mkdir(parents=True, exist_ok=True)
+        wiki.write_text(src_wiki, encoding="utf-8")
+
+    assert run_once("run_a") == run_once("run_b")
 
 
 def test_run_id_is_uuid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

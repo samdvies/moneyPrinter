@@ -7,7 +7,7 @@ import json
 import re
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -138,7 +138,7 @@ def synthetic_polymarket_ticks(
             MarketData(
                 venue=Venue.POLYMARKET,
                 market_id=market_id,
-                timestamp=base.replace(second=i % 60, microsecond=i),
+                timestamp=base + timedelta(seconds=i),
                 bids=[(m - sp / 2, Decimal("10"))],
                 asks=[(m + sp / 2, Decimal("10"))],
             )
@@ -218,8 +218,10 @@ def validate_strategy(
     ]
     walkforward = summarise_walkforward(wf_results)
 
-    run_id = str(uuid.uuid4())
-    run_ts = datetime.now(UTC)
+    run_id_cfg = config.get("run_id")
+    run_id = str(run_id_cfg) if run_id_cfg is not None else str(uuid.uuid4())
+    run_ts_cfg = config.get("run_ts")
+    run_ts = run_ts_cfg if isinstance(run_ts_cfg, datetime) else datetime.now(UTC)
     ts_slug = run_ts.strftime("%Y-%m-%d-%H%M%S")
     art_dir = _repo_root() / "artifacts" / "backtests" / strategy_slug / ts_slug
     art_dir.mkdir(parents=True, exist_ok=True)
