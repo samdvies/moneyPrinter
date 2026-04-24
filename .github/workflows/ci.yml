@@ -101,6 +101,11 @@ jobs:
           version: "0.5.x"
       - run: uv sync
       - run: uv run pytest -v
+      - name: validation framework smoke (polymarket-yes-mean-revert synthetic)
+        run: |
+          uv run python -m backtest_engine.validate --strategy polymarket-yes-mean-revert --synthetic
+          REPORT_JSON=$(ls -t artifacts/backtests/polymarket-yes-mean-revert/*/report.json | head -1)
+          uv run python -m backtest_engine.promotion_gate --report "$REPORT_JSON" || true
 
   smoke:
     runs-on: ubuntu-latest

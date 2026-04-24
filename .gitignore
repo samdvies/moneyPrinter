@@ -25,10 +25,15 @@ Cargo.lock
 .env
 .env.*
 !.env.example
+!deploy/.env.prod.template
+deploy/.env.prod
 secrets/
 credentials.json
 *.pem
 *.key
+
+# Validation / local backtest outputs (regenerate with backtest_engine.validate)
+artifacts/
 
 # Data
 data/

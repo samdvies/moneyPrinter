@@ -18,6 +18,7 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "hit_rate": 0.45,
     "p_value_sharpe": 0.05,
     "walkforward_degradation": 0.5,
+    "oos_sharpe_min": 0.0,
 }
 
 
@@ -69,10 +70,11 @@ def check_promotion_criteria(report: Any, thresholds: dict[str, float]) -> tuple
 
     raw_mdd = metrics.get("max_drawdown")
     mdd = raw_mdd if isinstance(raw_mdd, dict) else {}
-    depth_pct = float(mdd.get("depth_pct", 0.0)) * 100.0
-    if depth_pct < thresholds["max_dd_pct"]:
+    depth_frac = float(mdd.get("depth_pct", 0.0))
+    dd_pct_display = depth_frac * 100.0
+    if dd_pct_display < thresholds["max_dd_pct"]:
         reasons.append(
-            f"max drawdown {depth_pct:.2f}% worse than threshold {thresholds['max_dd_pct']}%"
+            f"max drawdown {dd_pct_display:.2f}% worse than threshold {thresholds['max_dd_pct']}%"
         )
 
     hit = float(metrics.get("hit_rate", 0.0))
@@ -93,6 +95,12 @@ def check_promotion_criteria(report: Any, thresholds: dict[str, float]) -> tuple
             f"walkforward OOS/IS degradation {deg:.4f} below minimum "
             f"{thresholds['walkforward_degradation']} (OOS Sharpe too weak vs IS)"
         )
+
+    oos_min = float(thresholds.get("oos_sharpe_min", 0.0))
+    if oos_min > 0.0 and "mean_oos_sharpe" in wf:
+        oos_sh = float(wf["mean_oos_sharpe"])
+        if oos_sh < oos_min:
+            reasons.append(f"mean walk-forward OOS Sharpe {oos_sh:.4f} below minimum {oos_min}")
 
     return (len(reasons) == 0, reasons)
 

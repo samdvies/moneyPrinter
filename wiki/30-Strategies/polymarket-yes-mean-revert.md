@@ -14,6 +14,13 @@ parameters:
   stake_gbp: "1.0"
   min_stddev: 0.00000001
   venue: "polymarket"
+promotion_thresholds:
+  sharpe: 0.5
+  max_dd_pct: -20
+  hit_rate: 0.45
+  p_value_sharpe: 0.05
+  walkforward_degradation: 0.5
+  oos_sharpe_min: 0.5
 tags: [strategy, polymarket, mean-reversion, stat-arb, hypothesis]
 ---
 

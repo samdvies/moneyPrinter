@@ -93,8 +93,9 @@ def _replay_ticks(
     fill_log: list[tuple[ExecutionResult, Decimal]] = []
     trades: list[dict[str, Any]] = []
     per_tick_pnl: list[Decimal] = []
-    equity_curve: list[Decimal] = []
-    running = Decimal("0")
+    initial = Decimal("1000")
+    equity_curve: list[Decimal] = [initial]
+    running = initial
     settlement = build_delta_pnl_settlement()
 
     for tick in ticks:
