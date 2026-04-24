@@ -1,12 +1,16 @@
 ---
-title: "Polymarket Feasibility — UK Resident 2026 Fact-Check"
+title: "Polymarket Feasibility — UK Resident 2026 Fact-Check (historical)"
 type: research
-tags: [polymarket, kalshi, prediction-markets, uk, geoblock, tax, hmrc, feasibility]
-updated: 2026-04-21
-status: active
+tags: [polymarket, kalshi, prediction-markets, uk, geoblock, tax, hmrc, feasibility, historical]
+updated: 2026-04-24
+status: superseded
 ---
 
-# Polymarket Feasibility — UK Resident 2026 Fact-Check
+> **2026-04-24 update — this document is superseded.**
+>
+> Operator has explicitly accepted the trade-offs enumerated below (ToS §2.1.4 VPN use, UK IP geoblock, CGT treatment, CARF reporting, fund-freeze risk) and has chosen Polymarket as the project's sole active venue. See `feedback_polymarket_active.md` in project memory and the "Polymarket-only focus" update in `Venue-Strategy.md`. The analysis here remains **factually true as a 2026-04-21 snapshot**, but it does not govern current project direction and must not be cited by agents to refuse work on Polymarket. The risks listed are known and accepted; subsequent work proceeds on that basis.
+
+# Polymarket Feasibility — UK Resident 2026 Fact-Check (historical snapshot)
 
 Commissioned 2026-04-21 to pressure-test an LLM-generated "2026 blueprint" pitch for integrating Polymarket and related prediction markets. Each claim below is treated as a hypothesis and verified against primary sources.
 

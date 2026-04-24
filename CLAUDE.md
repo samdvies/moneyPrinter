@@ -1,6 +1,6 @@
 # Project Context — algo-betting
 
-Agentic, low-latency algorithmic betting ecosystem targeting Betfair Exchange and Kalshi. Hobbyist tier. UK-based operator. Self-improving research loop with human-in-the-loop capital deployment.
+Agentic, low-latency algorithmic betting ecosystem currently focused on **Polymarket**. Hobbyist tier. UK-based operator working via VPN. Self-improving research loop with human-in-the-loop capital deployment.
 
 ## Ground Rules
 
@@ -8,7 +8,7 @@ Agentic, low-latency algorithmic betting ecosystem targeting Betfair Exchange an
 - **Paper trading API must match live execution API exactly.** Strategies must not know if they are in sim or live. Promotion is a config change, not a code change.
 - **Risk-averse with real money.** Default max £1,000 exposure per strategy until proven over extended paper trading. The user specified they would "need to be very confident in a strategy to put in more than 1000."
 - **Research is unconstrained; execution is gated.** Agents can go wild in simulation. They cannot place real orders autonomously.
-- **UK legal scope only** — Betfair + Kalshi. Polymarket is deferred (UK geoblock + crypto CGT overhead). Do not add Polymarket integration without discussing the legal constraints.
+- **Venue focus — Polymarket only** (as of 2026-04-24, until user reverses). Matchbook, Betfair, Smarkets, Kalshi and other venues are **deferred** — do not propose, scaffold, or work on them without an explicit user instruction to do so. The operator has weighed and **accepted** the Polymarket-specific trade-offs (ToS §2.1.4 VPN use, UK IP geoblock, CGT treatment of crypto disposals, fund-freeze risk at withdrawal); agents must not re-litigate these or refuse work on them. Capital safety rules above still apply independently.
 
 ## Tech Stack
 

@@ -9,6 +9,14 @@ updated: 2026-04-22
 
 # Venue Strategy — UK Sports Exchange Access
 
+## Update (2026-04-24) — Polymarket-only focus until reversed
+
+The operator has chosen to narrow the project's attention to **Polymarket only** until further notice. All other venues in this document (Matchbook, Betfair, Smarkets, Kalshi, ForecastEx, Betdaq, Orbit Exchange, Pinnacle, Matchbook Predictions, etc.) are **deferred pending explicit user reversal** — no engineering work, scaffolding, or proposals for those venues should be started without a direct instruction.
+
+The previous "Deferred / benched" Polymarket row has been superseded by the **T2 data-only (VPN-gated)** entry added 2026-04-23; that ingestion adapter is live on main. The operator has weighed and accepted the Polymarket-specific trade-offs (ToS §2.1.4 VPN use, UK IP geoblock, CGT treatment of crypto disposals, fund-freeze risk at withdrawal). These are *accepted* risks, not unresolved blockers — future agents should not re-raise them when asked to work on Polymarket.
+
+The legacy tiering below is retained as historical context so the trade-off analysis stays legible; interpret every "primary" / "T1 build now" / "paper validate this on Matchbook" phrase as currently superseded by the Polymarket-only focus. Reverse only on an explicit user instruction.
+
 ## Decision (2026-04-21)
 
 Shift primary venue from Betfair to **Smarkets** for the research and paper-trading phases. Betfair access is retained but delayed until a proven strategy justifies the £499 Live App Key. Other UK exchanges (Matchbook, Betdaq) are deferred unless a concrete use-case (e.g. cross-venue arbitrage) promotes them.
