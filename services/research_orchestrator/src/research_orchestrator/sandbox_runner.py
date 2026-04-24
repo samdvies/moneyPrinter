@@ -136,7 +136,7 @@ def _sandbox_child_main(
     # ------------------------------------------------------------------
     if sys.platform != "win32":
         try:
-            import resource  # type: ignore[import-untyped]  # Unix only
+            import resource  # Unix only
 
             cpu_secs = _CHILD_CPU_SECONDS
             mem_mb = _CHILD_MEM_MB

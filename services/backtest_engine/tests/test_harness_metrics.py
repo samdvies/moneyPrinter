@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from algobet_common.schemas import ExecutionResult, OrderSide, OrderSignal, Venue
-from backtest_engine.metrics import (
+from backtest_engine.harness_metrics import (
     _trivial_settlement,
     build_delta_pnl_settlement,
     max_drawdown_gbp,

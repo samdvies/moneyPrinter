@@ -1,306 +1,217 @@
-"""Pure metric helpers for the backtest harness.
+"""Validation metrics on per-period returns and completed trades.
 
-Four named functions, each a pure function of its arguments — no I/O, no
-global state, no hidden randomness. The harness drives them.
-
-Return types are JSON-serialisable via ``json.dumps(default=str)`` so the
-resulting ``BacktestResult`` dict can be stored directly in the
-``strategy_runs.metrics`` jsonb column (see
-``strategy_registry/crud.py::end_run``).
-
-``_trivial_settlement`` is module-private: 6a uses it as the default
-settlement (every fill P&L = 0) so the harness control flow can be
-exercised without pretending to price risk. 6b introduces
-``build_delta_pnl_settlement``: a stateful settlement *factory* that
-returns a per-run closure, tracking positions per
-``(venue, market_id, selection_id)`` across fills and emitting realised
-P&L on opposite-side closes. The harness builds one closure per run,
-calls it once per fill (requires both the triggering ``OrderSignal`` and
-the resulting ``ExecutionResult``), and records the per-fill realised
-P&L alongside the fill. ``total_pnl_gbp_from_pnls`` /
-``win_rate_from_pnls`` then sum / count those recorded Decimals — a
-single source of truth for realised P&L per run.
+Pure functions: no logging, no I/O, no hidden randomness. Returns are
+assumed to be **arithmetic** simple returns (not log returns). Sharpe /
+Sortino use sample standard deviation with ``ddof=1`` when ``n >= 2``.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
 from decimal import Decimal
+from typing import Any
 
-from algobet_common.schemas import ExecutionResult, OrderSide, OrderSignal
+import numpy as np
 
 __all__ = [
-    "DeltaSettlementFn",
-    "SettlementFn",
-    "build_delta_pnl_settlement",
-    "max_drawdown_gbp",
-    "sharpe",
-    "total_pnl_gbp",
-    "total_pnl_gbp_from_pnls",
-    "win_rate",
-    "win_rate_from_pnls",
+    "compute_all_metrics",
+    "compute_avg_trade",
+    "compute_calmar",
+    "compute_expectancy",
+    "compute_hit_rate",
+    "compute_max_drawdown",
+    "compute_profit_factor",
+    "compute_sharpe",
+    "compute_sortino",
+    "compute_win_rate",
 ]
 
-# Annualisation factor for daily-bucketed Sharpe — matches the standard
-# 252 trading-day convention used across the quant literature.
-_ANNUAL_FACTOR = 252
 
-# Legacy single-arg settlement signature — retained for the 6a trivial
-# default and for tests that pin custom per-fill settlements.
-SettlementFn = Callable[[ExecutionResult], Decimal]
-
-# 6b stateful settlement signature. The closure returned by
-# ``build_delta_pnl_settlement`` carries per-(venue, market_id, selection_id)
-# position state across fills, so it must see the ``OrderSignal`` (for
-# side / venue / market_id / selection_id) alongside the ``ExecutionResult``
-# (for filled_stake / filled_price). Unfilled results contribute Decimal("0").
-DeltaSettlementFn = Callable[[OrderSignal, ExecutionResult], Decimal]
+def _to_float(x: Decimal | float) -> float:
+    if isinstance(x, Decimal):
+        return float(x)
+    return float(x)
 
 
-def _trivial_settlement(_result: ExecutionResult) -> Decimal:
-    """Module-private default settlement: every fill settles at its own VWAP.
+def compute_sharpe(returns: np.ndarray, ann_factor: float = 252.0) -> float:
+    """Annualised Sharpe: mean / std * sqrt(ann_factor).
 
-    P&L is therefore zero for every matched order. Retained for back-compat
-    with 6a tests and as the default argument on the legacy ``total_pnl_gbp``
-    / ``win_rate`` helpers. 6b's harness uses ``build_delta_pnl_settlement``
-    exclusively.
+    Empty or length-1 ``returns`` raises ``ValueError``. All-zero sample
+    variance returns ``0.0`` (avoids NaN in downstream JSON).
     """
-    return Decimal("0")
-
-
-# ---------------------------------------------------------------------------
-# Delta-P&L settlement factory (6b)
-# ---------------------------------------------------------------------------
-
-
-def _side_sign(side: OrderSide) -> int:
-    """Return +1 for BACK/YES (long), -1 for LAY/NO (short)."""
-    if side in (OrderSide.BACK, OrderSide.YES):
-        return 1
-    return -1
-
-
-def build_delta_pnl_settlement() -> DeltaSettlementFn:
-    """Return a stateful settlement closure for a single backtest run.
-
-    Tracks net position per ``(venue, market_id, selection_id)`` across
-    fills. On every fill the closure:
-
-    - Returns ``Decimal("0")`` for unfilled results (``filled_stake == 0``
-      or missing ``filled_price``) — resting orders do not realise P&L.
-    - On a same-side fill, extends the position (weighted-average entry
-      price update) and returns ``Decimal("0")``.
-    - On an opposite-side fill, realises P&L against the closing size
-      (``min(|new_stake|, |prior_position|)``):
-        - BACK-then-LAY: realised = closing_size * (lay_price - back_entry)
-        - LAY-then-BACK: realised = closing_size * (lay_entry - back_price)
-      Any residual on the new side (if ``|new_stake| > |prior_position|``)
-      becomes the new open position at ``filled_price``.
-
-    This is the "simplified delta-P&L" committed to by the Phase 6b plan
-    ("an opposite-side fill closes the prior position at the new fill
-    price"). No market-close settlement, no commission. Real settlement
-    is deferred to post-6c.
-
-    The closure is NOT reusable across runs — instantiate a fresh closure
-    per ``run_backtest`` invocation.
-    """
-    # Per-market state: key is (venue, market_id, selection_id). Value is
-    # (signed_position, entry_price). ``signed_position`` is positive for a
-    # net BACK/YES exposure, negative for LAY/NO. ``entry_price`` is the
-    # volume-weighted-average entry for the open position; undefined (None)
-    # when there is no open position.
-    #
-    # Caller contract: for a given (venue, market_id) pair, callers MUST
-    # be consistent about ``selection_id``. Mixing ``None`` and a concrete
-    # UUID for the same market creates two independent position buckets
-    # that never cross-settle, which is probably not what the strategy
-    # intends. The reference mean-reversion strategy always passes
-    # ``selection_id=None``, so this is contractually safe today; 6c's
-    # Kalshi work will need to watch for it when YES/NO selection_ids start
-    # flowing (Debt 4).
-    positions: dict[tuple[str, str, str | None], tuple[Decimal, Decimal]] = {}
-
-    def _settle(signal: OrderSignal, result: ExecutionResult) -> Decimal:
-        if result.filled_stake <= Decimal("0") or result.filled_price is None:
-            return Decimal("0")
-
-        key = (str(signal.venue), signal.market_id, signal.selection_id)
-        new_sign = _side_sign(signal.side)
-        new_size = result.filled_stake
-        new_price = result.filled_price
-
-        prior = positions.get(key)
-        if prior is None or prior[0] == Decimal("0"):
-            # Open a fresh position.
-            positions[key] = (Decimal(new_sign) * new_size, new_price)
-            return Decimal("0")
-
-        prior_signed, prior_entry = prior
-        prior_sign = 1 if prior_signed > 0 else -1
-
-        if new_sign == prior_sign:
-            # Same-side extension: weighted-average entry.
-            prior_size = abs(prior_signed)
-            total_size = prior_size + new_size
-            new_entry = ((prior_entry * prior_size) + (new_price * new_size)) / total_size
-            positions[key] = (Decimal(prior_sign) * total_size, new_entry)
-            return Decimal("0")
-
-        # Opposite side: realise P&L against the closing portion.
-        prior_size = abs(prior_signed)
-        closing_size = min(new_size, prior_size)
-
-        # Delta P&L convention (Phase 6b plan §"P&L settlement for 6b"):
-        #   BACK-then-LAY:  realised = closing_size * (back_entry - lay_price)
-        #                   (profit when we BACK'd cheap and LAY out higher)
-        #   LAY-then-BACK:  realised = closing_size * (lay_entry  - back_price)
-        #                   (profit when we LAY'd high and BACK out lower — the
-        #                   spec's "symmetric" case with sign reflected)
-        # Both expressions collapse to ``prior_entry - new_price`` because the
-        # closing fill is always the opposite side of the open position.
-        realised = closing_size * (prior_entry - new_price)
-
-        residual_prior = prior_size - closing_size
-        residual_new = new_size - closing_size
-
-        if residual_prior > Decimal("0"):
-            # Partial close: prior position persists at its original entry.
-            positions[key] = (Decimal(prior_sign) * residual_prior, prior_entry)
-        elif residual_new > Decimal("0"):
-            # Full close + residual flips to the new side at new_price.
-            positions[key] = (Decimal(new_sign) * residual_new, new_price)
-        else:
-            # Exact close: position flat.
-            positions[key] = (Decimal("0"), Decimal("0"))
-
-        return realised
-
-    return _settle
-
-
-# ---------------------------------------------------------------------------
-# Aggregation helpers
-# ---------------------------------------------------------------------------
-
-
-def total_pnl_gbp(
-    fills: Sequence[ExecutionResult],
-    settlement_fn: SettlementFn = _trivial_settlement,
-) -> Decimal:
-    """Sum ``settlement_fn(fill)`` across every fill with non-zero stake.
-
-    Resting (``filled_stake == 0``) results are ignored — they are not fills.
-
-    Retained for the 6a trivial-settlement call sites and for unit tests
-    that pin custom single-arg settlements. The 6b harness instead records
-    per-fill realised P&L via ``build_delta_pnl_settlement`` and aggregates
-    with ``total_pnl_gbp_from_pnls``.
-    """
-    total = Decimal("0")
-    for fill in fills:
-        if fill.filled_stake <= Decimal("0"):
-            continue
-        total += settlement_fn(fill)
-    return total
-
-
-def total_pnl_gbp_from_pnls(realised_pnls: Sequence[Decimal]) -> Decimal:
-    """Sum pre-computed per-fill realised P&L values.
-
-    Harness fast path: the delta-P&L closure records one Decimal per fill
-    during replay; this helper just sums them. Single source of truth for
-    realised P&L — no re-invocation of the settlement closure, no risk of
-    divergence between equity-curve and terminal totals.
-    """
-    return sum(realised_pnls, Decimal("0"))
-
-
-def sharpe(per_tick_pnl_series: Sequence[Decimal]) -> float:
-    """Annualised Sharpe ratio over a tick-level P&L series.
-
-    Each element of ``per_tick_pnl_series`` is treated as one sample. The
-    annualisation factor (252) is applied regardless of sample cadence —
-    callers supplying sparse per-day P&L get a standard daily Sharpe;
-    callers supplying dense tick-level P&L get a number whose annualisation
-    is only meaningful if the total span is a standard trading session
-    length. Proper per-UTC-day bucketing is deferred to 6b when the
-    reference strategy produces timestamped P&L.
-
-    Returns 0.0 on degenerate inputs (empty, single, zero stddev) —
-    JSONB cannot round-trip NaN.
-
-    6b caveat: the orchestrator currently supplies one sample per tick
-    with most samples equal to zero (only opposite-side close-fills carry
-    realised P&L under the delta-P&L settlement). That dilutes both the
-    mean and the stddev toward zero, so the annualised number is small
-    and mainly useful as a relative indicator between runs of the same
-    length. The advancement gate uses ``total_pnl_gbp``, not ``sharpe``,
-    so the dilution does not affect promotion correctness.
-    """
-    if len(per_tick_pnl_series) < 2:
+    arr = np.asarray(returns, dtype=float)
+    if arr.size < 2:
+        msg = "returns must have at least 2 samples for Sharpe"
+        raise ValueError(msg)
+    mean = float(arr.mean())
+    std = float(arr.std(ddof=1))
+    if std <= 0.0 or not math.isfinite(std):
         return 0.0
-    floats = [float(x) for x in per_tick_pnl_series]
-    mean = sum(floats) / len(floats)
-    variance = sum((x - mean) ** 2 for x in floats) / (len(floats) - 1)
-    if variance <= 0:
-        return 0.0
-    std = math.sqrt(variance)
-    return (mean / std) * math.sqrt(_ANNUAL_FACTOR)
+    return (mean / std) * math.sqrt(ann_factor)
 
 
-def max_drawdown_gbp(equity_curve: Sequence[Decimal]) -> Decimal:
-    """Worst peak-to-trough drawdown, returned as a non-negative Decimal.
-
-    An empty curve returns ``Decimal("0")``. A monotonically rising curve
-    also returns ``Decimal("0")``.
-    """
-    if not equity_curve:
-        return Decimal("0")
-    peak = equity_curve[0]
-    worst = Decimal("0")
-    for value in equity_curve:
-        if value > peak:
-            peak = value
-        drawdown = peak - value
-        if drawdown > worst:
-            worst = drawdown
-    return worst
-
-
-def win_rate(
-    fills: Sequence[ExecutionResult],
-    settlement_fn: SettlementFn = _trivial_settlement,
+def compute_sortino(
+    returns: np.ndarray,
+    ann_factor: float = 252.0,
+    mar: float = 0.0,
 ) -> float:
-    """Fraction of fills with settled P&L > 0 under ``settlement_fn``.
+    """Sortino using downside deviation vs ``mar``.
 
-    The default trivial settlement returns 0 for every fill, so ``win_rate``
-    is 0.0 whenever any fill exists. Retained for 6a trivial-settlement
-    call sites and custom-settlement unit tests; the 6b harness uses
-    ``win_rate_from_pnls`` against recorded delta-P&L values.
+    Downside deviation is ``sqrt(mean((min(r - mar, 0))^2))`` over **all**
+    observations (zeros contribute). Empty or length-1 raises
+    ``ValueError``. If every return is ``>= mar`` (no downside), returns
+    ``0.0``.
     """
-    matched = [f for f in fills if f.filled_stake > Decimal("0")]
-    if not matched:
+    arr = np.asarray(returns, dtype=float)
+    if arr.size < 2:
+        msg = "returns must have at least 2 samples for Sortino"
+        raise ValueError(msg)
+    mean = float(arr.mean())
+    downside = np.minimum(arr - mar, 0.0)
+    if not np.any(downside < 0):
         return 0.0
-    wins = sum(1 for f in matched if settlement_fn(f) > Decimal("0"))
-    return wins / len(matched)
+    dsd = float(np.sqrt(np.mean(downside**2)))
+    if dsd <= 0.0 or not math.isfinite(dsd):
+        return 0.0
+    return ((mean - mar) / dsd) * math.sqrt(ann_factor)
 
 
-def win_rate_from_pnls(realised_pnls: Sequence[Decimal]) -> float:
-    """Fraction of pre-computed per-fill realised P&Ls that are strictly positive.
+def compute_max_drawdown(equity_curve: np.ndarray) -> dict[str, Any]:
+    """Peak-to-trough drawdown on an equity **level** series.
 
-    Only values corresponding to genuine fills should be passed in — the
-    harness records Decimal("0") for unfilled (resting) results AND for
-    opening / extending positions. Both are excluded from the wins-rate
-    denominator: a "fill" for rate purposes is a realised round-trip,
-    i.e. any entry with non-zero realised P&L. This differs from the
-    legacy ``win_rate`` (which counts all matched orders) and is the
-    correct interpretation for delta-P&L settlement where only closing
-    fills realise.
+    Returns dict with ``peak`` and ``trough`` at the worst drawdown episode,
+    ``depth_pct`` (negative fraction of the peak at that episode, e.g. ``-0.25``
+    for a 25% drawdown), and ``duration_bars`` (trough index minus peak index).
+
+    Empty curve raises ``ValueError``.
     """
-    closed = [p for p in realised_pnls if p != Decimal("0")]
-    if not closed:
+    eq = np.asarray(equity_curve, dtype=float)
+    if eq.size == 0:
+        msg = "equity_curve must be non-empty"
+        raise ValueError(msg)
+    running_peak = float(eq[0])
+    peak_i = 0
+    worst_depth = 0.0
+    worst_peak = running_peak
+    worst_trough = running_peak
+    worst_duration = 0
+    for i in range(1, eq.size):
+        v = float(eq[i])
+        if v > running_peak:
+            running_peak = v
+            peak_i = i
+        if running_peak != 0.0:
+            dd_pct = (v - running_peak) / running_peak
+        elif v == 0.0:
+            dd_pct = 0.0
+        else:
+            dd_pct = float("-inf")
+        if dd_pct < worst_depth:
+            worst_depth = dd_pct
+            worst_peak = running_peak
+            worst_trough = v
+            worst_duration = i - peak_i
+    return {
+        "peak": float(worst_peak),
+        "trough": float(worst_trough),
+        "depth_pct": float(worst_depth),
+        "duration_bars": int(worst_duration),
+    }
+
+
+def compute_calmar(
+    returns: np.ndarray,
+    equity_curve: np.ndarray,
+    ann_factor: float = 252.0,
+) -> float:
+    """Annualised return / abs(max drawdown depth as positive fraction).
+
+    Uses arithmetic mean return * ann_factor as annual return proxy.
+    If max drawdown depth is zero, returns ``0.0``.
+    """
+    arr = np.asarray(returns, dtype=float)
+    eq = np.asarray(equity_curve, dtype=float)
+    if arr.size == 0 or eq.size == 0:
+        msg = "returns and equity_curve must be non-empty"
+        raise ValueError(msg)
+    mdd = compute_max_drawdown(eq)
+    depth = abs(mdd["depth_pct"]) if mdd["depth_pct"] < 0 else 0.0
+    ann_ret = float(arr.mean()) * ann_factor
+    if depth <= 0.0:
         return 0.0
-    wins = sum(1 for p in closed if p > Decimal("0"))
-    return wins / len(closed)
+    return ann_ret / depth
+
+
+def compute_hit_rate(trades: list[dict[str, Any]]) -> float:
+    """Fraction of trades with ``pnl > 0``."""
+    if not trades:
+        msg = "trades must be non-empty"
+        raise ValueError(msg)
+    wins = sum(1 for t in trades if _to_float(t["pnl"]) > 0.0)
+    return wins / len(trades)
+
+
+def compute_win_rate(trades: list[dict[str, Any]]) -> float:
+    """Alias of :func:`compute_hit_rate`."""
+    return compute_hit_rate(trades)
+
+
+def compute_profit_factor(trades: list[dict[str, Any]]) -> float:
+    """Sum of winning ``pnl`` / abs(sum of losing ``pnl``).
+
+    No losses or zero loss sum returns ``0.0``.
+    """
+    if not trades:
+        msg = "trades must be non-empty"
+        raise ValueError(msg)
+    gross_win = sum(_to_float(t["pnl"]) for t in trades if _to_float(t["pnl"]) > 0.0)
+    gross_loss = sum(_to_float(t["pnl"]) for t in trades if _to_float(t["pnl"]) < 0.0)
+    if gross_loss == 0.0:
+        return 0.0
+    return gross_win / abs(gross_loss)
+
+
+def compute_expectancy(trades: list[dict[str, Any]]) -> float:
+    """Average ``pnl`` per trade."""
+    if not trades:
+        msg = "trades must be non-empty"
+        raise ValueError(msg)
+    return sum(_to_float(t["pnl"]) for t in trades) / len(trades)
+
+
+def compute_avg_trade(trades: list[dict[str, Any]]) -> float:
+    """Average absolute ``stake`` per trade (exposure proxy)."""
+    if not trades:
+        msg = "trades must be non-empty"
+        raise ValueError(msg)
+    return sum(abs(_to_float(t["stake"])) for t in trades) / len(trades)
+
+
+def compute_all_metrics(
+    trades: list[dict[str, Any]],
+    equity_curve: np.ndarray,
+    ann_factor: float = 252.0,
+) -> dict[str, Any]:
+    """Aggregate trade and equity-curve metrics (snake_case keys)."""
+    if not trades:
+        msg = "trades must be non-empty"
+        raise ValueError(msg)
+    eq = np.asarray(equity_curve, dtype=float)
+    if eq.size < 2:
+        msg = "equity_curve must have at least 2 points to derive returns"
+        raise ValueError(msg)
+    rets = np.diff(eq) / np.where(eq[:-1] != 0.0, eq[:-1], 1.0)
+    mdd = compute_max_drawdown(eq)
+    out: dict[str, Any] = {
+        "sharpe": compute_sharpe(rets, ann_factor=ann_factor),
+        "sortino": compute_sortino(rets, ann_factor=ann_factor),
+        "max_drawdown": mdd,
+        "calmar": compute_calmar(rets, eq, ann_factor=ann_factor),
+        "hit_rate": compute_hit_rate(trades),
+        "win_rate": compute_win_rate(trades),
+        "profit_factor": compute_profit_factor(trades),
+        "expectancy": compute_expectancy(trades),
+        "avg_trade": compute_avg_trade(trades),
+        "n_trades": len(trades),
+    }
+    return out
