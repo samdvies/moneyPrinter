@@ -1,0 +1,79 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-algobet}
+      POSTGRES_USER: ${POSTGRES_USER:-algobet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  ingestion:
+    build:
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: ingestion-polymarket
+      INGESTION_MODE: polymarket
+      POLYMARKET_POLL_INTERVAL_SECONDS: "1.0"
+      POLYMARKET_PAGE_SIZE: "500"
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      - redis
+      - postgres
+
+  simulator:
+    build:
+      context: ..
+      dockerfile: services/simulator/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: simulator
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      - redis
+      - postgres
+
+  risk_manager:
+    build:
+      context: ..
+      dockerfile: services/risk_manager/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: risk-manager
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      - redis
+      - postgres
+
+  strategy_runner:
+    build:
+      context: ..
+      dockerfile: services/strategy_runner/Dockerfile
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: strategy-runner
+      REDIS_HOST: redis
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      - redis
+      - postgres
+
+volumes:
+  redis-data:
+  postgres-data:
