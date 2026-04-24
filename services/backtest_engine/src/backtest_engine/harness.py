@@ -41,7 +41,7 @@ from simulator.fills import match_order
 from strategy_registry import crud
 from strategy_registry.models import Mode
 
-from backtest_engine.metrics import (
+from backtest_engine.harness_metrics import (
     build_delta_pnl_settlement,
     max_drawdown_gbp,
     sharpe,
