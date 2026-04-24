@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+import numpy as np
 from algobet_common.schemas import ExecutionResult, MarketData, OrderSignal
 from simulator.book import Book
 from simulator.fills import match_order
@@ -66,6 +67,16 @@ def run_strategy_metrics(
     params: dict[str, Any],
 ) -> dict[str, Any]:
     """Run ``strategy_on_tick`` over ``ticks`` and return harness-shaped metrics."""
+    metrics, _trades, _eq = _replay_ticks(strategy_on_tick, ticks, params)
+    return metrics
+
+
+def run_strategy_backtest(
+    strategy_on_tick: Callable[[MarketData, dict[str, Any], datetime], OrderSignal | None],
+    ticks: list[MarketData],
+    params: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], np.ndarray]:
+    """Replay and return (harness metrics, closing trades, equity curve as float64)."""
     return _replay_ticks(strategy_on_tick, ticks, params)
 
 
@@ -73,13 +84,14 @@ def _replay_ticks(
     strategy_on_tick: Callable[[MarketData, dict[str, Any], datetime], OrderSignal | None],
     ticks: list[MarketData],
     params: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], np.ndarray]:
     """Deterministic synchronous replay (mirrors harness fill/settlement path)."""
     p = copy.deepcopy(params)
     p.pop("_window", None)
 
     book = Book()
     fill_log: list[tuple[ExecutionResult, Decimal]] = []
+    trades: list[dict[str, Any]] = []
     per_tick_pnl: list[Decimal] = []
     equity_curve: list[Decimal] = []
     running = Decimal("0")
@@ -99,12 +111,24 @@ def _replay_ticks(
             realised = settlement(signal, result)
             fill_log.append((result, realised))
             tick_pnl = realised
+            if realised != Decimal("0"):
+                trades.append(
+                    {
+                        "entry_ts": ts,
+                        "exit_ts": ts,
+                        "pnl": float(realised),
+                        "stake": float(signal.stake),
+                        "venue": str(signal.venue),
+                        "market_id": signal.market_id,
+                    }
+                )
         running += tick_pnl
         per_tick_pnl.append(tick_pnl)
         equity_curve.append(running)
 
     realised_pnls = [pnl for _r, pnl in fill_log]
-    return {
+    eq_arr = np.array([float(x) for x in equity_curve], dtype=np.float64)
+    metrics = {
         "sharpe": sharpe(per_tick_pnl),
         "total_pnl_gbp": total_pnl_gbp_from_pnls(realised_pnls),
         "max_drawdown_gbp": max_drawdown_gbp(equity_curve),
@@ -112,6 +136,7 @@ def _replay_ticks(
         "win_rate": win_rate_from_pnls(realised_pnls),
         "n_ticks_consumed": len(ticks),
     }
+    return metrics, trades, eq_arr
 
 
 def walkforward_run(
@@ -124,11 +149,11 @@ def walkforward_run(
     """Run in-sample then out-of-sample with optional refit between phases."""
     train_ticks = ticks[split_cfg.train_start : split_cfg.train_end]
     test_ticks = ticks[split_cfg.test_start : split_cfg.test_end]
-    is_metrics = _replay_ticks(strategy_on_tick, train_ticks, params)
+    is_metrics, _, _ = _replay_ticks(strategy_on_tick, train_ticks, params)
     oos_params = params
     if fit_fn is not None:
         oos_params = fit_fn(train_ticks, copy.deepcopy(params))
-    oos_metrics = _replay_ticks(strategy_on_tick, test_ticks, oos_params)
+    oos_metrics, _, _ = _replay_ticks(strategy_on_tick, test_ticks, oos_params)
     return {
         "in_sample": is_metrics,
         "out_of_sample": oos_metrics,
