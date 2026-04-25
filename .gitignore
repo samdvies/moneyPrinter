@@ -68,3 +68,4 @@ logs/
 var/research_orchestrator/
 execution/target/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
